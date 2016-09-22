@@ -90,16 +90,16 @@ is
   bmax32 constant number := power( 2, 32 ) - 1;
   bmax64 constant number := power( 2, 64 ) - 1;
   type tp_crypto is table of number;
-  type tp_des is table of integer;
+  type tp_aes_tab is table of number index by pls_integer;
 --
-  SP1 tp_des;
-  SP2 tp_des;
-  SP3 tp_des;
-  SP4 tp_des;
-  SP5 tp_des;
-  SP6 tp_des;
-  SP7 tp_des;
-  SP8 tp_des;
+  SP1 tp_crypto;
+  SP2 tp_crypto;
+  SP3 tp_crypto;
+  SP4 tp_crypto;
+  SP5 tp_crypto;
+  SP6 tp_crypto;
+  SP7 tp_crypto;
+  SP8 tp_crypto;
 --
   function bitor( x number, y number )
   return number
@@ -1223,41 +1223,444 @@ is
     return t_rv;
   end;
 --
-  procedure deskey( p_key raw, p_keys out tp_des, p_encrypt boolean )
+  procedure aes_encrypt_key
+    ( key varchar2
+    , p_encrypt_key out nocopy tp_aes_tab
+    )
   is
-    bytebit tp_des := tp_des( 128, 64, 32, 16, 8, 4, 2, 1 );
-    bigbyte tp_des := tp_des( to_number( '800000', 'XXXXXX' ), to_number( '400000', 'XXXXXX' ), to_number( '200000', 'XXXXXX' ), to_number( '100000', 'XXXXXX' )
-                            , to_number( '080000', 'XXXXXX' ), to_number( '040000', 'XXXXXX' ), to_number( '020000', 'XXXXXX' ), to_number( '010000', 'XXXXXX' )
-                            , to_number( '008000', 'XXXXXX' ), to_number( '004000', 'XXXXXX' ), to_number( '002000', 'XXXXXX' ), to_number( '001000', 'XXXXXX' )
-                            , to_number( '000800', 'XXXXXX' ), to_number( '000400', 'XXXXXX' ), to_number( '000200', 'XXXXXX' ), to_number( '000100', 'XXXXXX' )
-                            , to_number( '000080', 'XXXXXX' ), to_number( '000040', 'XXXXXX' ), to_number( '000020', 'XXXXXX' ), to_number( '000010', 'XXXXXX' )
-                            , to_number( '000008', 'XXXXXX' ), to_number( '000004', 'XXXXXX' ), to_number( '000002', 'XXXXXX' ), to_number( '000001', 'XXXXXX' )
-                            );
-    pcl tp_des := tp_des( 56, 48, 40, 32, 24, 16,  8
-                        ,  0, 57, 49, 41, 33, 25, 17
-                        ,  9,  1, 58, 50, 42, 34, 26
-                        , 18, 10,  2, 59, 51, 43, 35
-                        , 62, 54, 46, 38, 30, 22, 14
-                        ,  6, 61, 53, 45, 37, 29, 21
-                        , 13,  5, 60, 52, 44, 36, 28
-                        , 20, 12,  4, 27, 19, 11, 3
-                        );
-    pc2 tp_des := tp_des( 13, 16, 10, 23,  0,  4
-                        ,  2, 27, 14,  5, 20,  9
-                        , 22, 18, 11, 3 , 25,  7
-                        , 15,  6, 26, 19, 12,  1
-                        , 40, 51, 30, 36, 46, 54
-                        , 29, 39, 50, 44, 32, 47
-                        , 43, 48, 38, 55, 33, 52
-                        , 45, 41, 49, 35, 28, 31
-                        );
-    totrot tp_des := tp_des( 1, 2, 4, 6, 8, 10, 12, 14
-                           , 15, 17, 19, 21, 23, 25, 27, 28
-                           );
-    t_key tp_des := tp_des();
-    pclm tp_des := tp_des();
-    pcr tp_des := tp_des();
-    kn tp_des := tp_des();
+    rcon tp_aes_tab;
+    t_r number;
+    SS varchar2(512);
+    s1 number;
+    s2 number;
+    s3 number;
+    t number;
+    Nk pls_integer;
+    n pls_integer;
+    r pls_integer;
+  begin
+    SS := '637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0'
+       || 'b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275'
+       || '09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf'
+       || 'd0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2'
+       || 'cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb'
+       || 'e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08'
+       || 'ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e'
+       || 'e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16';
+    for i in 0 .. 255
+    loop
+      s1 := to_number( substr( SS, i * 2 + 1, 2 ), 'XX' );
+      s2 := s1 * 2;
+      if s2 >= 256
+      then
+        s2 := bitxor( s2, 283 );
+      end if;
+      s3 := bitxor( s1, s2 );
+      p_encrypt_key(i) := s1;
+      t := bitor( bitor( bitor( shl( s2, 24 ), shl( s1, 16 ) ), shl( s1, 8 ) ), s3 );
+      p_encrypt_key( 256 + i ) := t;
+      t := rol32( t, 24 );
+      p_encrypt_key( 512 + i ) := t;
+      t := rol32( t, 24 );
+      p_encrypt_key( 768 + i ) := t;
+      t := rol32( t, 24 );
+      p_encrypt_key( 1024 + i ) := t;
+    end loop;
+--
+    t_r := 1;
+    rcon(0) := shl( t_r, 24 );
+    for i in 1 .. 9
+    loop
+      t_r := t_r * 2;
+      if t_r >= 256
+      then
+        t_r := bitxor( t_r, 283 );
+      end if;
+      rcon(i) := shl( t_r, 24 );
+    end loop;
+    rcon(7) := - rcon(7);
+    Nk := length( key ) / 8;
+    for i in 0 .. Nk - 1
+    loop
+      p_encrypt_key( 1280 + i ) := to_number( substr( key, i * 8 + 1, 8 ), 'xxxxxxxx' );
+    end loop;
+    n := 0;
+    r := 0;
+    for i in Nk .. Nk * 4 + 27
+    loop
+      t := p_encrypt_key( 1280 + i - 1 );
+      if n = 0
+      then
+        n := Nk;
+        t := bitor( bitor( shl( p_encrypt_key( bitand( shr( t, 16 ), 255 ) ), 24 )
+                         , shl( p_encrypt_key( bitand( shr( t, 8  ), 255 ) ), 16 )
+                         )
+                  , bitor( shl( p_encrypt_key( bitand( t           , 255 ) ), 8 )
+                         ,      p_encrypt_key( bitand( shr( t, 24 ), 255 ) )
+                         )
+                  );
+        t := bitxor( t, rcon( r ) );
+        r := r + 1;
+      elsif ( Nk = 8 and n = 4 )
+      then
+        t := bitor( bitor( shl( p_encrypt_key( bitand( shr( t, 24 ), 255 ) ), 24 )
+                         , shl( p_encrypt_key( bitand( shr( t, 16 ), 255 ) ), 16 )
+                         )
+                  , bitor( shl( p_encrypt_key( bitand( shr( t, 8  ), 255 ) ), 8 )
+                         ,      p_encrypt_key( bitand( t           , 255 ) )
+                         )
+                  );
+      end if;
+      n := n -1;
+      p_encrypt_key( 1280 + i ) := bitand( bitxor( p_encrypt_key( 1280 + i - Nk ), t ), bmax32 );
+    end loop;
+  end;
+--
+  procedure aes_decrypt_key
+    ( key varchar2
+    , p_decrypt_key out nocopy tp_aes_tab
+    )
+is
+    Se tp_aes_tab;
+    rek tp_aes_tab;
+    rcon tp_aes_tab;
+    SS varchar2(512);
+    s1 number;
+    s2 number;
+    s3 number;
+    i2 number;
+    i4 number;
+    i8 number;
+    i9 number;
+    ib number;
+    id number;
+    ie number;
+    t number;
+    Nk pls_integer;
+    Nw pls_integer;
+    n pls_integer;
+    r pls_integer;
+  begin
+    SS := '637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0'
+       || 'b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275'
+       || '09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf'
+       || 'd0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2'
+       || 'cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb'
+       || 'e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08'
+       || 'ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e'
+       || 'e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16';
+    for i in 0 .. 255
+    loop
+      s1 := to_number( substr( SS, i * 2 + 1, 2 ), 'XX' );
+      i2 := i * 2;
+      if i2 >= 256
+      then
+        i2 := bitxor( i2, 283 );
+      end if;
+      i4 := i2 * 2;
+      if i4 >= 256
+      then
+        i4 := bitxor( i4, 283 );
+      end if;
+      i8 := i4 * 2;
+      if i8 >= 256
+      then
+        i8 := bitxor( i8, 283 );
+      end if;
+      i9 := bitxor( i8, i );
+      ib := bitxor( i9, i2 );
+      id := bitxor( i9, i4 );
+      ie := bitxor( bitxor( i8, i4 ), i2 );
+      Se(i) := s1;
+      p_decrypt_key( s1 ) := i;
+      t := bitor( bitor( bitor( shl( ie, 24 ), shl( i9, 16 ) ), shl( id, 8 ) ), ib );
+      p_decrypt_key( 256 + s1 ) := t;
+      t := rol32( t, 24 );
+      p_decrypt_key( 512 + s1 ) := t;
+      t := rol32( t, 24 );
+      p_decrypt_key( 768 + s1 ) := t;
+      t := rol32( t, 24 );
+      p_decrypt_key( 1024 + s1 ) := t;
+    end loop;
+--
+    t := 1;
+    rcon(0) := shl( t, 24 );
+    for i in 1 .. 9
+    loop
+      t := t * 2;
+      if t >= 256
+      then
+        t := bitxor( t, 283 );
+      end if;
+      rcon(i) := shl( t, 24 );
+    end loop;
+    rcon(7) := - rcon(7);
+    Nk := length( key ) / 8;
+    Nw := 4 * ( Nk + 7 );
+    for i in 0 .. Nk - 1
+    loop
+      rek(i) := to_number( substr( key, i * 8 + 1, 8 ), 'xxxxxxxx' );
+    end loop;
+    n := 0;
+    r := 0;
+    for i in Nk .. Nw - 1
+    loop
+      t := rek(i - 1);
+      if n = 0
+      then
+        n := Nk;
+        t := bitor( bitor( shl( Se( bitand( shr( t, 16 ), 255 ) ), 24 )
+                         , shl( Se( bitand( shr( t, 8  ), 255 ) ), 16 )
+                         )
+                  , bitor( shl( Se( bitand( t           , 255 ) ), 8 )
+                         ,      Se( bitand( shr( t, 24 ), 255 ) )
+                         )
+                  );
+        t := bitxor( t, rcon( r ) );
+        r := r + 1;
+      elsif ( Nk = 8 and n = 4 )
+      then
+        t := bitor( bitor( shl( Se( bitand( shr( t, 24 ), 255 ) ), 24 )
+                         , shl( Se( bitand( shr( t, 16 ), 255 ) ), 16 )
+                         )
+                  , bitor( shl( Se( bitand( shr( t, 8  ), 255 ) ), 8 )
+                         ,      Se( bitand( t           , 255 ) )
+                         )
+                  );
+      end if;
+      n := n -1;
+      rek(i) := bitand( bitxor( rek( i - Nk ), t ), bmax32 );
+    end loop;
+    for i in 0 .. 3
+    loop
+      p_decrypt_key( 1280 + i ) := rek(Nw - 4 + i);
+    end loop;
+    for i in 1 .. Nk + 5
+    loop
+      for j in 0 .. 3
+      loop
+        t:= rek( Nw - i * 4 - 4 + j );
+        t := bitxor( bitxor( p_decrypt_key( 256 + bitand( Se( bitand( shr( t, 24 ), 255 ) ), 255 ) )
+                           , p_decrypt_key( 512 + bitand( Se( bitand( shr( t, 16 ), 255 ) ), 255 ) )
+                           )
+                   , bitxor( p_decrypt_key( 768 + bitand( Se( bitand( shr( t, 8 ), 255 ) ), 255 ) )
+                           , p_decrypt_key( 1024 + bitand( Se( bitand( t, 255 ) ), 255 ) )
+                           )
+                   );
+        p_decrypt_key( 1280 + i * 4 + j ) := t;
+      end loop;
+    end loop;
+    for i in Nw - 4 .. Nw - 1
+    loop
+      p_decrypt_key( 1280 + i ) := rek(i - Nw + 4);
+    end loop;
+  end;
+--
+  function aes_encrypt
+    ( src varchar2
+    , klen pls_integer
+    , p_decrypt_key tp_aes_tab
+    )
+  return raw
+  is
+    t0 number;
+    t1 number;
+    t2 number;
+    t3 number;
+    a0 number;
+    a1 number;
+    a2 number;
+    a3 number;
+    k pls_integer := 0;
+--
+    function grv( a number, b number, c number, d number, v number )
+    return varchar2
+    is
+      t number;
+      rv varchar2(256);
+    begin
+      t := bitxor( p_decrypt_key( bitand( shr( a, 24 ), 255 ) ), shr( v, 24 ) );
+      rv := substr( to_char( t, '0xxxxxxx' ), -2 );
+      t := bitxor( p_decrypt_key( bitand( shr( b, 16 ), 255 ) ), shr( v, 16 ) );
+      rv := rv || substr( to_char( t, '0xxxxxxx' ), -2 );
+      t := bitxor( p_decrypt_key( bitand( shr( c, 8 ), 255 ) ), shr( v, 8 ) );
+      rv := rv || substr( to_char( t, '0xxxxxxx' ), -2 );
+      t := bitxor( p_decrypt_key( bitand( d, 255 ) ), v );
+      return rv || substr( to_char( t, '0xxxxxxx' ), -2 );
+    end;
+  begin
+    t0 := bitxor( to_number( substr( src,  1, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1280 ) );
+    t1 := bitxor( to_number( substr( src,  9, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1281 ) );
+    t2 := bitxor( to_number( substr( src, 17, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1282 ) );
+    t3 := bitxor( to_number( substr( src, 25, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1283 ) );
+    for i in 1 .. klen / 4 + 5
+    loop
+      k := k + 4;
+      a0 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t0, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t1, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t2, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(    t3     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 )
+                  );
+      a1 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t1, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t2, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t3, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t0     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 + 1 )
+                  );
+      a2 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t2, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t3, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t0, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t1     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 + 2 )
+                  );
+      a3 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t3, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t0, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t1, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t2     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 + 3 )
+                  );
+      t0 := a0; t1 := a1; t2 := a2; t3 := a3;
+    end loop;
+    k := k + 4;
+    return grv( t0, t1, t2, t3, p_decrypt_key( 1280 + k ) )
+        || grv( t1, t2, t3, t0, p_decrypt_key( 1280 + k + 1 ) )
+        || grv( t2, t3, t0, t1, p_decrypt_key( 1280 + k + 2 ) )
+        || grv( t3, t0, t1, t2, p_decrypt_key( 1280 + k + 3 ) );
+  end;
+--
+  function aes_decrypt
+    ( src varchar2
+    , klen pls_integer
+    , p_decrypt_key tp_aes_tab
+    )
+  return raw
+  is
+    t0 number;
+    t1 number;
+    t2 number;
+    t3 number;
+    a0 number;
+    a1 number;
+    a2 number;
+    a3 number;
+    k pls_integer := 0;
+--
+    function grv( a number, b number, c number, d number, v number )
+    return varchar2
+    is
+      t number;
+      rv varchar2(256);
+    begin
+      t := bitxor( p_decrypt_key( bitand( shr( a, 24 ), 255 ) ), shr( v, 24 ) );
+      rv := substr( to_char( t, '0xxxxxxx' ), -2 );
+      t := bitxor( p_decrypt_key( bitand( shr( b, 16 ), 255 ) ), shr( v, 16 ) );
+      rv := rv || substr( to_char( t, '0xxxxxxx' ), -2 );
+      t := bitxor( p_decrypt_key( bitand( shr( c, 8 ), 255 ) ), shr( v, 8 ) );
+      rv := rv || substr( to_char( t, '0xxxxxxx' ), -2 );
+      t := bitxor( p_decrypt_key( bitand( d, 255 ) ), v );
+      return rv || substr( to_char( t, '0xxxxxxx' ), -2 );
+    end;
+  begin
+    t0 := bitxor( to_number( substr( src,  1, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1280 ) );
+    t1 := bitxor( to_number( substr( src,  9, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1281 ) );
+    t2 := bitxor( to_number( substr( src, 17, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1282 ) );
+    t3 := bitxor( to_number( substr( src, 25, 8 ), 'xxxxxxxx' ), p_decrypt_key( 1283 ) );
+    for i in 1 .. klen / 4 + 5
+    loop
+      k := k + 4;
+      a0 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t0, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t3, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t2, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t1     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 )
+                  );
+      a1 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t1, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t0, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t3, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t2     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 + 1 )
+                  );
+      a2 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t2, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t1, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t0, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t3     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 + 2 )
+                  );
+      a3 := bitxor( bitxor( bitxor( p_decrypt_key( 256 + bitand( shr( t3, 24 ), 255 ) )
+                                  , p_decrypt_key( 512 + bitand( shr( t2, 16 ), 255 ) )
+                                  )
+                          , bitxor( p_decrypt_key( 768 + bitand( shr( t1, 8 ), 255 ) )
+                                  , p_decrypt_key( 1024 + bitand(     t0     , 255 ) )
+                                  )
+                          )
+                  , p_decrypt_key( 1280 + i * 4 + 3 )
+                  );
+      t0 := a0; t1 := a1; t2 := a2; t3 := a3;
+    end loop;
+    k := k + 4;
+    return grv( t0, t3, t2, t1, p_decrypt_key( 1280 + k ) )
+        || grv( t1, t0, t3, t2, p_decrypt_key( 1280 + k + 1 ) )
+        || grv( t2, t1, t0, t3, p_decrypt_key( 1280 + k + 2 ) )
+        || grv( t3, t2, t1, t0, p_decrypt_key( 1280 + k + 3 ) );
+  end;
+--
+  procedure deskey( p_key raw, p_keys out tp_crypto, p_encrypt boolean )
+  is
+    bytebit tp_crypto := tp_crypto( 128, 64, 32, 16, 8, 4, 2, 1 );
+    bigbyte tp_crypto := tp_crypto( to_number( '800000', 'XXXXXX' ), to_number( '400000', 'XXXXXX' ), to_number( '200000', 'XXXXXX' ), to_number( '100000', 'XXXXXX' )
+                                  , to_number( '080000', 'XXXXXX' ), to_number( '040000', 'XXXXXX' ), to_number( '020000', 'XXXXXX' ), to_number( '010000', 'XXXXXX' )
+                                  , to_number( '008000', 'XXXXXX' ), to_number( '004000', 'XXXXXX' ), to_number( '002000', 'XXXXXX' ), to_number( '001000', 'XXXXXX' )
+                                  , to_number( '000800', 'XXXXXX' ), to_number( '000400', 'XXXXXX' ), to_number( '000200', 'XXXXXX' ), to_number( '000100', 'XXXXXX' )
+                                  , to_number( '000080', 'XXXXXX' ), to_number( '000040', 'XXXXXX' ), to_number( '000020', 'XXXXXX' ), to_number( '000010', 'XXXXXX' )
+                                  , to_number( '000008', 'XXXXXX' ), to_number( '000004', 'XXXXXX' ), to_number( '000002', 'XXXXXX' ), to_number( '000001', 'XXXXXX' )
+                                  );
+    pcl tp_crypto := tp_crypto( 56, 48, 40, 32, 24, 16,  8
+                              ,  0, 57, 49, 41, 33, 25, 17
+                              ,  9,  1, 58, 50, 42, 34, 26
+                              , 18, 10,  2, 59, 51, 43, 35
+                              , 62, 54, 46, 38, 30, 22, 14
+                              ,  6, 61, 53, 45, 37, 29, 21
+                              , 13,  5, 60, 52, 44, 36, 28
+                              , 20, 12,  4, 27, 19, 11, 3
+                              );
+    pc2 tp_crypto := tp_crypto( 13, 16, 10, 23,  0,  4
+                              ,  2, 27, 14,  5, 20,  9
+                              , 22, 18, 11, 3 , 25,  7
+                              , 15,  6, 26, 19, 12,  1
+                              , 40, 51, 30, 36, 46, 54
+                              , 29, 39, 50, 44, 32, 47
+                              , 43, 48, 38, 55, 33, 52
+                              , 45, 41, 49, 35, 28, 31
+                              );
+    totrot tp_crypto := tp_crypto( 1, 2, 4, 6, 8, 10, 12, 14
+                                 , 15, 17, 19, 21, 23, 25, 27, 28
+                                 );
+    t_key tp_crypto := tp_crypto();
+    pclm tp_crypto := tp_crypto();
+    pcr tp_crypto := tp_crypto();
+    kn tp_crypto := tp_crypto();
     t_l pls_integer;
     t_m pls_integer;
     t_n pls_integer;
@@ -1270,7 +1673,7 @@ is
 --
     if SP1 is null
     then
-        SP1 := tp_des(
+        SP1 := tp_crypto(
         to_number( '01010400', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ), to_number( '00010000', 'xxxxxxxx' ), to_number( '01010404', 'xxxxxxxx' ),
         to_number( '01010004', 'xxxxxxxx' ), to_number( '00010404', 'xxxxxxxx' ), to_number( '00000004', 'xxxxxxxx' ), to_number( '00010000', 'xxxxxxxx' ),
         to_number( '00000400', 'xxxxxxxx' ), to_number( '01010400', 'xxxxxxxx' ), to_number( '01010404', 'xxxxxxxx' ), to_number( '00000400', 'xxxxxxxx' ),
@@ -1288,7 +1691,7 @@ is
         to_number( '00000404', 'xxxxxxxx' ), to_number( '01000400', 'xxxxxxxx' ), to_number( '01000400', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ),
         to_number( '00010004', 'xxxxxxxx' ), to_number( '00010400', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ), to_number( '01010004', 'xxxxxxxx' )
     );
-        SP2 := tp_des(
+        SP2 := tp_crypto(
         to_number( '80108020', 'xxxxxxxx' ), to_number( '80008000', 'xxxxxxxx' ), to_number( '00008000', 'xxxxxxxx' ), to_number( '00108020', 'xxxxxxxx' ),
         to_number( '00100000', 'xxxxxxxx' ), to_number( '00000020', 'xxxxxxxx' ), to_number( '80100020', 'xxxxxxxx' ), to_number( '80008020', 'xxxxxxxx' ),
         to_number( '80000020', 'xxxxxxxx' ), to_number( '80108020', 'xxxxxxxx' ), to_number( '80108000', 'xxxxxxxx' ), to_number( '80000000', 'xxxxxxxx' ),
@@ -1306,7 +1709,7 @@ is
         to_number( '00108000', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ), to_number( '80008000', 'xxxxxxxx' ), to_number( '00008020', 'xxxxxxxx' ),
         to_number( '80000000', 'xxxxxxxx' ), to_number( '80100020', 'xxxxxxxx' ), to_number( '80108020', 'xxxxxxxx' ), to_number( '00108000', 'xxxxxxxx' )
     );
-        SP3 := tp_des(
+        SP3 := tp_crypto(
         to_number( '00000208', 'xxxxxxxx' ), to_number( '08020200', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ), to_number( '08020008', 'xxxxxxxx' ),
         to_number( '08000200', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ), to_number( '00020208', 'xxxxxxxx' ), to_number( '08000200', 'xxxxxxxx' ),
         to_number( '00020008', 'xxxxxxxx' ), to_number( '08000008', 'xxxxxxxx' ), to_number( '08000008', 'xxxxxxxx' ), to_number( '00020000', 'xxxxxxxx' ),
@@ -1324,7 +1727,7 @@ is
         to_number( '08020000', 'xxxxxxxx' ), to_number( '08000208', 'xxxxxxxx' ), to_number( '00000208', 'xxxxxxxx' ), to_number( '08020000', 'xxxxxxxx' ),
         to_number( '00020208', 'xxxxxxxx' ), to_number( '00000008', 'xxxxxxxx' ), to_number( '08020008', 'xxxxxxxx' ), to_number( '00020200', 'xxxxxxxx' )
     );
-        SP4 := tp_des(
+        SP4 := tp_crypto(
         to_number( '00802001', 'xxxxxxxx' ), to_number( '00002081', 'xxxxxxxx' ), to_number( '00002081', 'xxxxxxxx' ), to_number( '00000080', 'xxxxxxxx' ),
         to_number( '00802080', 'xxxxxxxx' ), to_number( '00800081', 'xxxxxxxx' ), to_number( '00800001', 'xxxxxxxx' ), to_number( '00002001', 'xxxxxxxx' ),
         to_number( '00000000', 'xxxxxxxx' ), to_number( '00802000', 'xxxxxxxx' ), to_number( '00802000', 'xxxxxxxx' ), to_number( '00802081', 'xxxxxxxx' ),
@@ -1342,7 +1745,7 @@ is
         to_number( '00002001', 'xxxxxxxx' ), to_number( '00002080', 'xxxxxxxx' ), to_number( '00800000', 'xxxxxxxx' ), to_number( '00802001', 'xxxxxxxx' ),
         to_number( '00000080', 'xxxxxxxx' ), to_number( '00800000', 'xxxxxxxx' ), to_number( '00002000', 'xxxxxxxx' ), to_number( '00802080', 'xxxxxxxx' )
     );
-        SP5 := tp_des(
+        SP5 := tp_crypto(
         to_number( '00000100', 'xxxxxxxx' ), to_number( '02080100', 'xxxxxxxx' ), to_number( '02080000', 'xxxxxxxx' ), to_number( '42000100', 'xxxxxxxx' ),
         to_number( '00080000', 'xxxxxxxx' ), to_number( '00000100', 'xxxxxxxx' ), to_number( '40000000', 'xxxxxxxx' ), to_number( '02080000', 'xxxxxxxx' ),
         to_number( '40080100', 'xxxxxxxx' ), to_number( '00080000', 'xxxxxxxx' ), to_number( '02000100', 'xxxxxxxx' ), to_number( '40080100', 'xxxxxxxx' ),
@@ -1360,7 +1763,7 @@ is
         to_number( '00080100', 'xxxxxxxx' ), to_number( '02000100', 'xxxxxxxx' ), to_number( '40000100', 'xxxxxxxx' ), to_number( '00080000', 'xxxxxxxx' ),
         to_number( '00000000', 'xxxxxxxx' ), to_number( '40080000', 'xxxxxxxx' ), to_number( '02080100', 'xxxxxxxx' ), to_number( '40000100', 'xxxxxxxx' )
     );
-        SP6 := tp_des(
+        SP6 := tp_crypto(
         to_number( '20000010', 'xxxxxxxx' ), to_number( '20400000', 'xxxxxxxx' ), to_number( '00004000', 'xxxxxxxx' ), to_number( '20404010', 'xxxxxxxx' ),
         to_number( '20400000', 'xxxxxxxx' ), to_number( '00000010', 'xxxxxxxx' ), to_number( '20404010', 'xxxxxxxx' ), to_number( '00400000', 'xxxxxxxx' ),
         to_number( '20004000', 'xxxxxxxx' ), to_number( '00404010', 'xxxxxxxx' ), to_number( '00400000', 'xxxxxxxx' ), to_number( '20000010', 'xxxxxxxx' ),
@@ -1378,7 +1781,7 @@ is
         to_number( '00004000', 'xxxxxxxx' ), to_number( '00400010', 'xxxxxxxx' ), to_number( '20004010', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ),
         to_number( '20404000', 'xxxxxxxx' ), to_number( '20000000', 'xxxxxxxx' ), to_number( '00400010', 'xxxxxxxx' ), to_number( '20004010', 'xxxxxxxx' )
     );
-        SP7 := tp_des(
+        SP7 := tp_crypto(
         to_number( '00200000', 'xxxxxxxx' ), to_number( '04200002', 'xxxxxxxx' ), to_number( '04000802', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ),
         to_number( '00000800', 'xxxxxxxx' ), to_number( '04000802', 'xxxxxxxx' ), to_number( '00200802', 'xxxxxxxx' ), to_number( '04200800', 'xxxxxxxx' ),
         to_number( '04200802', 'xxxxxxxx' ), to_number( '00200000', 'xxxxxxxx' ), to_number( '00000000', 'xxxxxxxx' ), to_number( '04000002', 'xxxxxxxx' ),
@@ -1396,7 +1799,7 @@ is
         to_number( '00000000', 'xxxxxxxx' ), to_number( '00200802', 'xxxxxxxx' ), to_number( '04200000', 'xxxxxxxx' ), to_number( '00000800', 'xxxxxxxx' ),
         to_number( '04000002', 'xxxxxxxx' ), to_number( '04000800', 'xxxxxxxx' ), to_number( '00000800', 'xxxxxxxx' ), to_number( '00200002', 'xxxxxxxx' )
     );
-        SP8 := tp_des(
+        SP8 := tp_crypto(
         to_number( '10001040', 'xxxxxxxx' ), to_number( '00001000', 'xxxxxxxx' ), to_number( '00040000', 'xxxxxxxx' ), to_number( '10041040', 'xxxxxxxx' ),
         to_number( '10000000', 'xxxxxxxx' ), to_number( '10001040', 'xxxxxxxx' ), to_number( '00000040', 'xxxxxxxx' ), to_number( '10000000', 'xxxxxxxx' ),
         to_number( '00040040', 'xxxxxxxx' ), to_number( '10040000', 'xxxxxxxx' ), to_number( '10041040', 'xxxxxxxx' ), to_number( '00041000', 'xxxxxxxx' ),
@@ -1467,7 +1870,7 @@ is
       end loop;
     end loop;
 --
-    p_keys := tp_des();
+    p_keys := tp_crypto();
     p_keys.extend(32);
     rawi := 1;
     knli := 1;
@@ -1492,7 +1895,7 @@ is
     end loop;
   end;
 --
-  function des( p_block varchar2, p_keys tp_des )
+  function des( p_block varchar2, p_keys tp_crypto )
   return varchar2
   is
     t_left  integer;
@@ -1631,19 +2034,20 @@ is
   function encrypt( src raw, typ pls_integer, key raw, iv raw := null )
   return raw
   is
-    t_keys tp_des;
-    t_keys2 tp_des;
-    t_keys3 tp_des;
+    t_keys tp_crypto;
+    t_keys2 tp_crypto;
+    t_keys3 tp_crypto;
+    t_encrypt_key tp_aes_tab;
     t_idx pls_integer;
     t_len pls_integer;
     t_tmp varchar2(32766);
     t_tmp2 varchar2(32766);
     t_encr raw(32767);
     t_plain raw(32767);
-    t_padding raw(9);
+    t_padding raw(65);
     t_pad pls_integer;
-    t_iv raw(8);
-    t_raw raw(8);
+    t_iv raw(64);
+    t_raw raw(64);
     t_bs pls_integer := 8;
     t_bs2 pls_integer;
     function encr( p raw )
@@ -1658,6 +2062,14 @@ is
           tmp := des( p, t_keys );
         when ENCRYPT_3DES_2KEY then
           tmp := des( des( des( p, t_keys ), t_keys2 ), t_keys3 );
+        when ENCRYPT_AES then
+          tmp := aes_encrypt( p, utl_raw.length( key ), t_encrypt_key );
+        when ENCRYPT_AES128 then
+          tmp := aes_encrypt( p, 16, t_encrypt_key );
+        when ENCRYPT_AES192 then
+          tmp := aes_encrypt( p, 24, t_encrypt_key );
+        when ENCRYPT_AES256 then
+          tmp := aes_encrypt( p, 32, t_encrypt_key );
         else
           tmp := p;
       end case;
@@ -1679,6 +2091,18 @@ is
         deskey( utl_raw.substr( key, 1, 8 ), t_keys, true );
         deskey( utl_raw.substr( key, 9, 8 ), t_keys2, false );
         t_keys3 := t_keys;
+      when ENCRYPT_AES then
+        t_bs := 16;
+        aes_encrypt_key( key, t_encrypt_key  );
+      when ENCRYPT_AES128 then
+        t_bs := 16;
+        aes_encrypt_key( key, t_encrypt_key  );
+      when ENCRYPT_AES192 then
+        t_bs := 16;
+        aes_encrypt_key( key, t_encrypt_key  );
+      when ENCRYPT_AES256 then
+        t_bs := 16;
+        aes_encrypt_key( key, t_encrypt_key  );
       else
         null;
     end case;
@@ -1776,17 +2200,18 @@ $END
   function decrypt( src raw, typ pls_integer, key raw, iv raw := null )
   return raw
   is
-    t_keys tp_des;
-    t_keys2 tp_des;
-    t_keys3 tp_des;
+    t_keys tp_crypto;
+    t_keys2 tp_crypto;
+    t_keys3 tp_crypto;
+    t_decrypt_key tp_aes_tab;
     t_idx pls_integer;
     t_len pls_integer;
     t_tmp varchar2(32766);
     t_tmp2 varchar2(32766);
     t_decr raw(32767);
     t_pad pls_integer;
-    t_iv raw(8);
-    t_raw raw(8);
+    t_iv raw(64);
+    t_raw raw(64);
     t_bs pls_integer := 8;
     t_bs2 pls_integer;
     t_fb boolean;
@@ -1802,6 +2227,14 @@ $END
           tmp := des( p, t_keys );
         when ENCRYPT_3DES_2KEY then
           tmp := des( des( des( p, t_keys3 ), t_keys2 ), t_keys );
+        when ENCRYPT_AES then
+          tmp := aes_decrypt( p, utl_raw.length( key ), t_decrypt_key );
+        when ENCRYPT_AES128 then
+          tmp := aes_decrypt( p, 16, t_decrypt_key );
+        when ENCRYPT_AES192 then
+          tmp := aes_decrypt( p, 24, t_decrypt_key );
+        when ENCRYPT_AES256 then
+          tmp := aes_decrypt( p, 32, t_decrypt_key );
         else
           tmp := p;
       end case;
@@ -1828,6 +2261,18 @@ $END
         deskey( utl_raw.substr( key, 1, 8 ), t_keys, t_fb );
         deskey( utl_raw.substr( key, 9, 8 ), t_keys2, not t_fb );
         t_keys3 := t_keys;
+      when ENCRYPT_AES then
+        t_bs := 16;
+        aes_decrypt_key( key, t_decrypt_key  );
+      when ENCRYPT_AES128 then
+        t_bs := 16;
+        aes_decrypt_key( key, t_decrypt_key  );
+      when ENCRYPT_AES192 then
+        t_bs := 16;
+        aes_decrypt_key( key, t_decrypt_key  );
+      when ENCRYPT_AES256 then
+        t_bs := 16;
+        aes_decrypt_key( key, t_decrypt_key  );
       else
         null;
     end case;
