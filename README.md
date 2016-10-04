@@ -20,3 +20,6 @@ This does include
   - AES256
   - RC4
 
+**Please note**:
+This package will soon be included in https://github.com/OraOpenSource/oos-utils
+All additions, changes and bugfixes only will be available at that repository.
