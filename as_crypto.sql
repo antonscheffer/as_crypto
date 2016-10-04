@@ -2170,7 +2170,9 @@ is
           when CHAIN_ECB then
             t_raw := encr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
           when CHAIN_OFB then
-$IF DBMS_DB_VERSION.VER_LE_11 $THEN
+$IF DBMS_DB_VERSION.VER_LE_10 $THEN
+            t_raw := encr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
+$ELSIF DBMS_DB_VERSION.VER_LE_11 $THEN
             t_raw := encr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
 $ELSE
             t_iv := encr( t_iv );
@@ -2245,7 +2247,9 @@ $END
     then
       return encrypt__rc4( src, key );
     end if;
-$IF DBMS_DB_VERSION.VER_LE_11 $THEN
+$IF DBMS_DB_VERSION.VER_LE_10 $THEN
+    t_fb := bitand( typ, 3840 ) in ( CHAIN_CFB, CHAIN_OFB_REAL );
+$ELSIF DBMS_DB_VERSION.VER_LE_11 $THEN
     t_fb := bitand( typ, 3840 ) in ( CHAIN_CFB, CHAIN_OFB_REAL );
 $ELSE
     t_fb := bitand( typ, 3840 ) in ( CHAIN_CFB, CHAIN_OFB, CHAIN_OFB_REAL );
@@ -2303,7 +2307,9 @@ $END
             t_iv := substr( t_tmp, i * t_bs2 + 1, t_bs2 );
             t_raw := utl_raw.bit_xor( t_raw, t_iv );
           when CHAIN_OFB then
-$IF DBMS_DB_VERSION.VER_LE_11 $THEN
+$IF DBMS_DB_VERSION.VER_LE_10 $THEN
+            t_raw := decr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
+$ELSIF DBMS_DB_VERSION.VER_LE_11 $THEN
             t_raw := decr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
 $ELSE
             t_iv := decr( t_iv );
