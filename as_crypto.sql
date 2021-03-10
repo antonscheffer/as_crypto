@@ -3,7 +3,7 @@ is
 /*
 MIT License
 
-Copyright (c) 2016 Anton Scheffer
+Copyright (c) 2016-2021 Anton Scheffer
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -65,6 +65,20 @@ SOFTWARE.
     PAD_ANSI_X923      CONSTANT PLS_INTEGER            := 24576;  -- 0x6000
     -- Stream Cipher Algorithms
     ENCRYPT_RC4        CONSTANT PLS_INTEGER            :=   129;  -- 0x0081
+    -- Public Key Encryption Algorithm
+    PKENCRYPT_RSA_PKCS1_OAEP constant pls_integer := 1;
+    -- Public Key Type Algorithm
+    KEY_TYPE_RSA constant pls_integer := 1;
+    -- Public Key Signature Type Algorithm
+    SIGN_SHA224_RSA      constant pls_integer   := 1; -- SHA 224 bit hash function with RSA
+    SIGN_SHA256_RSA      constant pls_integer   := 2; -- SHA 256 bit hash function with RSA
+    SIGN_SHA256_RSA_X931 constant pls_integer   := 3; -- SHA 256 bit hash function with RSA and X931 padding
+    SIGN_SHA384_RSA      constant pls_integer   := 4; -- SHA 384 bit hash function with RSA
+    SIGN_SHA384_RSA_X931 constant pls_integer   := 5; -- SHA 384 bit hash function with RSA and X931 padding
+    SIGN_SHA512_RSA      constant pls_integer   := 6; -- SHA 512 bit hash function with RSA
+    SIGN_SHA512_RSA_X931 constant pls_integer   := 7; -- SHA 512 bit hash function with RSA and X931 padding
+    SIGN_SHA1_RSA        constant pls_integer   := 8; -- SHA1 hash function with RSA
+    SIGN_SHA1_RSA_X931   constant pls_integer   := 9; -- SHA1 hash function with RSA and X931 padding
 --
   function hash( src raw, typ pls_integer )
   return raw;
@@ -81,11 +95,51 @@ SOFTWARE.
   function decrypt( src raw, typ pls_integer, key raw, iv raw := null )
   return raw;
 --
+  function pkEncrypt( src raw
+                    , pub_key raw
+                    , pubkey_alg binary_integer
+                    , enc_alg binary_integer
+                    )
+  return raw;
+--
+  function pkDecrypt( src raw
+                    , prv_key raw
+                    , pubkey_alg binary_integer
+                    , enc_alg binary_integer
+                    )
+  return raw;
 end;
 /
 
 create or replace package body as_crypto
 is
+--
+  c_X931_TRAILER_SH1   constant raw(2) := '33CC';
+  c_X931_TRAILER_SH224 constant raw(2) := '38CC';
+  c_X931_TRAILER_SH256 constant raw(2) := '34CC';
+  c_X931_TRAILER_SH384 constant raw(2) := '36CC';
+  c_X931_TRAILER_SH512 constant raw(2) := '35CC';
+--
+  c_ASN1_SH1   raw(100) := '3021300906052B0E03021A05000414';
+  c_ASN1_SH224 raw(100) := '302D300D06096086480165030402040500041C';
+  c_ASN1_SH256 raw(100) := '3031300D060960864801650304020105000420';
+  c_ASN1_SH384 raw(100) := '3041300D060960864801650304020205000430';
+  c_ASN1_SH512 raw(100) := '3051300D060960864801650304020305000440';
+--
+  c_INTEGER  raw(1) := '02';
+  c_BIT_STRING raw(1) := '03';
+  c_OCTECT     raw(1) := '04';
+  c_NULL       raw(1) := '05';
+  c_OID        raw(1) := '06';
+  c_SEQUENCE raw(1) := '30';
+  type tp_key_parameters is table of raw(3999) index by pls_integer;
+--
+  type tp_mag is table of number index by pls_integer;
+  ccc number := 16; -- number of nibbles
+  cm number := power( 16, ccc );
+  cmm number := cm-1;
+  cm2 number := cm / 2;
+  cmi number := power( 16, -ccc );
 --
   bmax32 constant number := power( 2, 32 ) - 1;
   bmax64 constant number := power( 2, 64 ) - 1;
@@ -101,6 +155,704 @@ is
   SP7 tp_crypto;
   SP8 tp_crypto;
 --
+  function mag( p1 varchar2 )
+  return tp_mag
+  is
+    l number;
+    n number;
+    rv tp_mag;
+    t1 varchar2(3999);
+    cfmt1 varchar2(100) := rpad( 'X', ccc, 'X' );
+  begin
+    t1 := nvl( ltrim( p1, '0' ), '0' );
+    l := ceil( length( t1 ) / ccc );
+    t1 := lpad( t1, l * ccc, '0' );
+    for i in 0 .. l - 1
+    loop
+      n := to_number( substr( t1, 1 + i * ccc, ccc ), cfmt1 );
+      rv( l - 1 - i ) := n;
+    end loop;
+    return rv;
+  end;
+--
+  function demag( p1 tp_mag )
+  return varchar2
+  is
+    rv varchar2(3999);
+    cfmt2 varchar2(100);
+  begin
+    if ccc = 1
+    then
+      cfmt2 := 'fmx';
+    else
+      cfmt2 := 'fm' || rpad( '0', ccc, 'x' );
+    end if;
+    for i in 0 .. p1.count - 1
+    loop
+      rv := to_char( p1( i ), cfmt2 ) || rv;
+    end loop;
+    return nvl( ltrim( rv, '0' ), '0' );
+  end;
+  --
+  function rsub( p1 tp_mag, p2 tp_mag )
+  return tp_mag
+  is
+    b number;
+    t number;
+    rv tp_mag;
+  begin
+    b := 0;
+    for i in 0 .. p2.count - 1
+    loop
+      t := p1( i ) - p2( i ) - b;
+      if t < 0
+      then
+        b := 1;
+        t := t + cm;
+      else
+        b := 0;
+      end if;
+      rv( i ) := t;
+    end loop;
+    for i in p2.count .. p1.count - 1
+    loop
+      t := p1( i ) - b;
+      if t < 0
+      then
+        b := 1;
+        t := t + cm;
+      else
+        b := 0;
+      end if;
+      rv( i ) := t;
+    end loop;
+    while rv( rv.last ) = 0 and rv.count > 1
+    loop
+      rv.delete( rv.last );
+    end loop;
+    if rv.count = 0
+    then
+      rv(0) := 0;
+    end if;
+    return rv;
+  end;
+  --
+  function rmul( x tp_mag, y tp_mag )
+  return tp_mag
+  is
+    t number;
+    c number;
+    ci pls_integer;
+    m tp_mag;
+  begin
+    for i in 0 .. y.count + x.count - 2
+    loop
+      m(i) := 0;
+    end loop;
+    for yi in 0 .. y.count - 1
+    loop
+      c := 0;
+      for xi in 0 .. x.count - 1
+      loop
+        ci := xi+yi;
+        t := m(ci) + x(xi) * y(yi) + c;
+        c := trunc( t * cmi );
+        m(ci) := t - c * cm;
+      end loop;
+     if c > 0
+      then
+        m( ci + 1 ) := c;
+      end if;
+    end loop;
+    return m;
+  end;
+  --
+  function xmod( x tp_mag, y tp_mag )
+  return tp_mag
+  is
+    xc number := x.count;
+    yc number := y.count;
+    rv tp_mag;
+    ly tp_mag;
+    dq tp_mag;
+    l_gt boolean;
+    d number;
+    d2 number;
+    tmp number;
+    r number;
+    sf number;
+    --
+    procedure sub( x in out tp_mag, y tp_mag, p number )
+    is
+      b number := 0;
+    begin
+      for i in p .. p + y.count - 1
+      loop
+        x(i) := x(i) - y( i - p ) - b;
+        if x(i) < 0
+        then
+          x(i) := x(i) + cm;
+          b := 1;
+        else
+          b := 0;
+        end if;
+      end loop;
+    end;
+    --
+    function ge( x tp_mag, y tp_mag, p number )
+    return boolean
+    is
+      l_ge boolean := true;
+    begin
+      for i in reverse p .. p + y.count - 1
+      loop
+        case standard.sign( x(i) - y( i - p ) )
+          when 1 then
+            exit;
+          when -1 then
+            l_ge := false;
+            exit;
+          else null;
+        end case;
+      end loop;
+      return l_ge;
+    end;
+  --
+  begin
+    if xc < yc
+    then
+      return x;
+    end if;
+    if xc = yc
+    then
+      for i in reverse 0 .. xc - 1
+      loop
+        if x( i ) > y( i )
+        then
+          l_gt := true;
+          exit;
+        elsif x( i ) < y( i )
+        then
+          return x;
+        end if;
+      end loop;
+      if l_gt is null
+      then
+        rv(0) := 0;
+      end if;
+    end if;
+    if yc > 1
+    then
+      ly := y;
+      if y( yc - 1 ) < cm2
+      then
+        sf := trunc( cm / ( y( yc - 1 ) + 1 ) );
+        r := 0;
+        for i in 0 .. xc - 1
+        loop
+          tmp := x(i) * sf + r;
+          if tmp < cm
+          then
+            r := 0;
+            rv(i) := tmp;
+          else
+            r := trunc( tmp * cmi );
+            rv(i) := tmp - r * cm;
+          end if;
+        end loop;
+        if r > 0
+        then
+          rv(xc) := r;
+          xc := xc + 1;
+        end if;
+        --
+        r := 0;
+        for i in 0 .. yc - 1
+        loop
+          tmp := ly(i) * sf + r;
+          if tmp < cm
+          then
+            r := 0;
+            ly(i) := tmp;
+          else
+            r := trunc( tmp * cmi );
+            ly(i) := tmp - r * cm;
+          end if;
+        end loop;
+      else
+        rv := x;
+      end if;
+      if xc = 2
+      then
+        rv(2) := 0;
+        xc := 3;
+      end if;
+      --
+      if ge( rv, ly, xc - yc )
+      then
+        sub( rv, ly, xc - yc );
+      end if;
+      --
+      d2 := ly( yc - 1 ) * cm + ly( yc - 2 );
+      for i in reverse yc .. xc - 1
+      loop
+        if rv(i) > 0
+        then
+          if rv(i) > d2
+          then
+            d := cm - 1;
+          else
+            tmp := rv(i) * cm + rv( i - 1 );
+            if tmp > d2
+            then
+              d := cm - 1;
+            else
+              d := least( trunc( cm * ( tmp / d2 ) + rv( i - 2 ) / d2 ), cm - 1 );
+            end if;
+          end if;
+          dq.delete;
+          r := 0;
+          for j in 0 .. yc - 1
+          loop
+            tmp := ly(j) * d + r;
+            if tmp < cm
+            then
+              r := 0;
+              dq(j) := tmp;
+            else
+              r := trunc( tmp * cmi );
+              dq(j) := tmp - r * cm;
+            end if;
+          end loop;
+          dq( yc ) := r;
+          if not ge( rv, dq, i - yc )
+          then
+            r := 0;
+            for j in 0 .. yc - 1
+            loop
+              tmp := dq(j);
+              tmp := tmp - ly(j) - r;
+              if dq(j) < 0
+              then
+                dq(j) := tmp + cm;
+                r := 1;
+              else
+                dq(j) := tmp;
+                r := 0;
+              end if;
+            end loop;
+            if r > 0
+            then
+              dq(yc) := dq(yc) - 1;
+            end if;
+          end if;
+          sub( rv, dq, i - yc );
+        end if;
+      end loop;
+      --
+      --   if rv >= ly then substract ly from rv
+      if ge( rv, ly, 0 )
+      then
+        sub( rv, ly, 0 );
+      end if;
+      --
+      for i in reverse 1 .. xc - 1
+      loop
+        exit when rv(i) > 0;
+        rv.delete(i);
+      end loop;
+    --
+    else
+      d := y(0);
+      r := 0;
+      if d > 1
+      then
+        for i in reverse 0 .. x.count - 1
+        loop
+          tmp := r * cm + x(i);
+          r := tmp - trunc( tmp / d ) * d;
+        end loop;
+      end if;
+      rv(0) := r;
+    end if;
+    if sf is not null
+    then
+      r := 0;
+      for i in reverse 0 .. rv.count - 1
+      loop
+        tmp := rv(i) + r * cm;
+        rv(i) := trunc( tmp / sf );
+        r := tmp - rv(i) * sf;
+      end loop;
+      tmp := rv.count - 1;
+      if tmp > 0 and rv( tmp ) = 0
+      then
+        rv.delete( tmp );
+      end if;
+    end if;
+    return rv;
+  end;
+  --
+  function powmod( pa tp_mag, pb tp_mag, pm tp_mag )
+  return tp_mag
+  is
+    m1 tp_mag;
+    r tp_mag;
+    k pls_integer;
+    mc pls_integer;
+    ninv0 number;
+    bx0 number;
+    mx0 number;
+    nx number;
+    xx number;
+    xm tp_mag;
+    am tp_mag;
+    one tp_mag;
+    tx varchar2(3999);
+    sb varchar2(3999);
+    nr number;
+    hb boolean := false;
+    function monpro( pa tp_mag, pb tp_mag )
+    return tp_mag
+    is
+      b number;
+      c number;
+      m number;
+      tmp number;
+      t0 number;
+      t tp_mag;
+      ta tp_mag;
+      tb tp_mag;
+    begin
+      ta := pa;
+      for i in ta.count .. mc - 1
+      loop
+        ta( i ) := 0;
+      end loop;
+      tb := pb;
+      for i in tb.count .. mc - 1
+      loop
+        tb( i ) := 0;
+      end loop;
+      for i in 0 .. mc
+      loop
+        t( i ) := 0;
+      end loop;
+      for i in 0 .. mc - 1
+      loop
+        t( mc + 1 ) := 0;
+        tmp := t(0) + ta(0) * tb( i );
+        c := trunc( tmp * cmi );
+        t0 := tmp - c * cm;
+        t(1) := t(1) + c;
+        tmp := t0 * ninv0;
+        m := tmp - trunc( tmp * cmi ) * cm;
+        tmp := t0 + m * m1(0);
+        if tmp >= cm
+        then
+          t(1) := t(1) + trunc( tmp * cmi );
+        end if;
+        -- check for overflow of t(1)?
+        for j in 1 .. mc - 1
+        loop
+          tmp := t( j ) + ta( j ) * tb( i ) + m * m1( j );
+          if tmp >= cm
+          then
+            c := trunc( tmp * cmi );
+            t( j - 1 ) := tmp - c * cm;
+            if c >= cm
+            then
+              c := c - cm;
+              t( j + 2 ) := t( j + 2 ) + 1;
+            end if;
+            t( j + 1 ) := t( j + 1 ) + c;
+          else
+            t( j - 1 ) := tmp;
+          end if;
+        end loop;
+        t( mc - 1 ) := t( mc );
+        t( mc ) := t( mc + 1 );
+      end loop;
+      t.delete(mc+1);
+      for j in reverse 1 .. t.count - 1
+      loop
+        exit when t(j) > 0;
+        t.delete(j);
+      end loop;
+      b := t.count - mc;
+      if b = 0
+      then
+        for i in reverse 0 .. mc - 1
+        loop
+          b := t(i) - m1(i);
+          exit when b != 0;
+        end loop;
+        if b = 0
+        then
+          t.delete;
+          t(0) := 0;
+        end if;
+      end if;
+      if b > 0
+      then
+        b := 0;
+        for i in 0 .. mc - 1
+        loop
+          tmp := t(i) - m1(i) - b;
+          if tmp < 0
+          then
+            b := 1;
+            t(i) := tmp + cm;
+          else
+            b := 0;
+            t(i) := tmp;
+          end if;
+        end loop;
+        for i in mc .. t.count - 1
+        loop
+          tmp := t(i) - b;
+          if tmp < 0
+          then
+            b := 1;
+            t(i) := tmp + cm;
+          else
+            t(i) := tmp;
+            exit;
+          end if;
+        end loop;
+        for j in reverse 1 .. t.count - 1
+        loop
+          exit when t(j) > 0;
+          t.delete(j);
+        end loop;
+      end if;
+      return t;
+    end;
+  begin
+    m1 := pm;
+    mc := m1.count;
+    k := mc * ccc * 4;
+    for i in 0 .. mc - 1
+    loop
+      r( i ) := 0;
+    end loop;
+    r( mc ) := 1;
+    -- See "A New Algorithm for Inversion mod pk", Cetin Kaya Koc, https://eprint.iacr.org/2017/411.pdf
+    bx0 := m1(0);
+    mx0 := 2 * bx0;
+    if mx0 >= cm
+    then
+      mx0 := mx0 - cm;
+    end if;
+    nx := 1;
+    for j in 1 .. ccc * 4 - 1
+    loop
+      xx := bitand( bx0, power( 2, j ) );
+      if xx > 0
+      then
+        nx := nx + xx;
+        bx0 := bx0 + mx0;
+        if bx0 >= cm
+        then
+          bx0 := bx0 - cm;
+        end if;
+      end if;
+      mx0 := 2 * mx0;
+      if mx0 >= cm
+      then
+        mx0 := mx0 - cm;
+      end if;
+    end loop;
+    ninv0 := cm - nx;
+    --
+    xm := xmod( r, m1 );
+    am := xmod( rmul( pa, xm ), m1 );
+    sb := nvl( ltrim( demag( pb ), '0' ), '0' );
+    for i in 1 .. length( sb )
+    loop
+      nr := to_number( substr( sb, i, 1 ), 'x' );
+      for j in reverse 0 .. 3
+      loop
+        if not hb and bitand( nr, power( 2, j ) ) > 0
+        then
+          hb := true;
+        end if;
+        if hb
+        then
+          xm := monpro( xm, xm );
+        end if;
+        if bitand( nr, power( 2, j ) ) > 0
+        then
+          xm := monpro( am, xm );
+        end if;
+      end loop;
+    end loop;
+    one(0) := 1;
+    return monpro( xm, one);
+  end;
+  --
+  function get_len( p_key raw, p_ind in out pls_integer )
+  return pls_integer
+  is
+    l_len pls_integer;
+    l_tmp pls_integer;
+  begin
+    p_ind := p_ind + 1;
+    l_len := to_number( utl_raw.substr( p_key, p_ind, 1 ), 'xx' );
+    if l_len > 127
+    then
+      l_tmp := l_len - 128;
+      p_ind := p_ind + 1;
+      l_len := to_number( utl_raw.substr( p_key, p_ind, l_tmp ), rpad( 'x', 2 * l_tmp, 'x' ) );
+      p_ind := p_ind + l_tmp;
+    else
+      p_ind := p_ind + 1;
+    end if;
+    return l_len;
+  end;
+  --
+  procedure check_starting_sequence( p_key raw, p_ind in out pls_integer )
+  is
+    l_len pls_integer;
+  begin
+    p_ind := nvl( p_ind, 1 );
+    if utl_raw.substr( p_key, p_ind, 1 ) != c_SEQUENCE
+    then
+      raise value_error;
+    end if;
+    l_len := get_len( p_key, p_ind );
+  end;
+  --
+  function get_bytes( p_type raw, p_key raw, p_ind in out pls_integer, p_skip_enclosing_context boolean := true )
+  return raw
+  is
+    l_first raw(1);
+    l_len pls_integer;
+  begin
+    l_first := utl_raw.substr( p_key, p_ind, 1 );
+    if l_first != p_type
+    then
+      if p_skip_enclosing_context and utl_raw.bit_and( l_first, 'C0' ) = '80'
+      then
+        l_len := get_len( p_key, p_ind );
+        return get_bytes( p_type, p_key, p_ind, p_skip_enclosing_context );
+      else
+        raise value_error;
+      end if;
+    end if;
+    l_len := get_len( p_key, p_ind );
+    p_ind := p_ind + l_len;
+    if l_len != 0
+    then
+      return utl_raw.substr( p_key, p_ind - l_len, l_len );
+    else
+      return null;
+    end if;
+  end;
+  --
+  function get_integer( p_key raw, p_ind in out pls_integer )
+  return raw
+  is
+  begin
+    return get_bytes( c_INTEGER, p_key, p_ind );
+  end;
+  --
+  function get_octect( p_key raw, p_ind in out pls_integer )
+  return raw
+  is
+  begin
+    return get_bytes( c_OCTECT, p_key, p_ind );
+  end;
+  --
+  function get_oid( p_key raw, p_ind in out pls_integer )
+  return raw
+  is
+  begin
+    return get_bytes( c_OID, p_key, p_ind );
+  end;
+  --
+  function get_bit_string( p_key raw, p_ind in out pls_integer )
+  return raw
+  is
+  begin
+    -- assume always primitive encoding
+    -- skip unused bits value, assume always 0
+    return utl_raw.substr( get_bytes( c_BIT_STRING, p_key, p_ind ), 2 );
+  end;
+  --
+  function get_null( p_key raw, p_ind in out pls_integer )
+  return raw
+  is
+  begin
+    return get_bytes( c_NULL, p_key, p_ind );
+  end;
+  --
+  function parse_DER_RSA_PRIV_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_dummy raw(3999);
+    l_ind pls_integer;
+  begin
+    p_key_parameters.delete;
+    check_starting_sequence( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind );
+    p_key_parameters(1) := get_integer( p_key, l_ind ); -- n modulus
+    p_key_parameters(2) := get_integer( p_key, l_ind ); -- e public
+    p_key_parameters(3) := get_integer( p_key, l_ind ); -- d private
+    l_dummy := get_integer( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind );
+    return true;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end;
+  --
+  function parse_DER_RSA_PUB_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_dummy raw(3999);
+    l_ind pls_integer;
+  begin
+    p_key_parameters.delete;
+    check_starting_sequence( p_key, l_ind );
+    check_starting_sequence( p_key, l_ind );
+    l_dummy := get_oid( p_key, l_ind ); -- 2A864886F70D010101, 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
+    l_dummy := get_null( p_key, l_ind );
+    l_dummy := get_bit_string( p_key, l_ind );
+    l_ind := null;
+    check_starting_sequence( l_dummy, l_ind );
+    p_key_parameters(1) := get_integer( l_dummy, l_ind ); -- n modulus
+    p_key_parameters(2) := get_integer( l_dummy, l_ind ); -- e public
+    return true;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end;
+--
+  function mgf1( p_seed raw, p_len pls_integer, p_hash_type pls_integer )
+  return raw
+  is
+    l_rv raw(32767);
+  begin
+    for i in 0 .. 100
+    loop
+      l_rv := utl_raw.concat( l_rv, hash( utl_raw.concat( p_seed, to_char( i, 'fm0XXXXXXX' ) ), p_hash_type ) );
+      exit when utl_raw.length( l_rv ) >= p_len;
+    end loop;
+    return utl_raw.substr( l_rv, 1, p_len );
+  end;
+  --
   function bitor( x number, y number )
   return number
   is
@@ -2362,5 +3114,143 @@ $END
     return t_decr;
   end;
 --
+    function pkEncrypt( src raw
+                      , pub_key raw
+                      , pubkey_alg binary_integer
+                      , enc_alg binary_integer
+                      )
+    return raw
+    is
+      -- https://tools.ietf.org/html/rfc8017#section-7.1.1
+      l_rv raw(32767);
+      l_key_parameters tp_key_parameters;
+      l_k pls_integer;
+      l_ml pls_integer;
+      l_k0 pls_integer;
+      l_hash_type pls_integer;
+      l_x raw(32767);
+      l_y raw(32767);
+      l_em raw(32767);
+      l_r raw(3999);
+    begin
+      if src is null
+      then
+        raise_application_error( -20010, 'No input buffer provided.' );
+      elsif pub_key is null
+      then
+        raise_application_error( -20011, 'no key provided' );
+      elsif pubkey_alg is null
+      then
+        raise_application_error( -20012, 'PL/SQL function returned an error.' );
+      elsif pubkey_alg != KEY_TYPE_RSA
+      then
+        raise_application_error( -20013, 'invalid cipher type passed' );
+      elsif enc_alg is null
+      then
+        raise_application_error( -20014, 'PL/SQL function returned an error.' );
+      elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
+      then
+        raise_application_error( -20015, 'invalid cipher type passed' );
+      elsif not parse_DER_RSA_PUB_key( utl_encode.base64_decode( pub_key ), l_key_parameters )
+      then
+        raise_application_error( -20016, 'PL/SQL function returned an error.' );
+      end if;
+      l_hash_type := HASH_SH256;
+      l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
+      l_k := trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8;
+      l_ml := utl_raw.length( src );
+      if l_ml > l_k - 2 * l_k0 - 2
+      then
+        raise_application_error( -20017, 'PL/SQL function returned an error.' );
+      end if;
+      l_x := utl_raw.concat( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                           , case when l_k - 2 * l_k0 - 2 - l_ml > 0 then utl_raw.copies( '00', l_k - 2 * l_k0 - 2 - l_ml ) end
+                           , '01'
+                           , src
+                           );
+      l_r := randombytes( l_k0 );
+      l_y := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
+      l_em := utl_raw.concat( utl_raw.bit_xor( mgf1( l_y, l_k0, l_hash_type ), l_r ), l_y );
+      l_rv := demag( powmod( mag( l_em ), mag( l_key_parameters(2) ), mag( l_key_parameters(1) ) ) );
+      return l_rv;
+    end;
+    --
+    function pkDecrypt( src raw
+                      , prv_key raw
+                      , pubkey_alg binary_integer
+                      , enc_alg binary_integer
+                      )
+    return raw
+    is
+      -- https://tools.ietf.org/html/rfc8017#section-7.1.2
+      l_rv raw(32767);
+      l_k pls_integer;
+      l_k0 pls_integer;
+      l_hash_type pls_integer;
+      l_em raw(32767);
+      l_x raw(32767);
+      l_tmp raw(1);
+      l_r raw(3999);
+      l_idx pls_integer;
+      l_key_parameters tp_key_parameters;
+    begin
+      if src is null
+      then
+        raise_application_error( -20010, 'No input buffer provided.' );
+      elsif prv_key is null
+      then
+        raise_application_error( -20011, 'no key provided' );
+      elsif pubkey_alg is null
+      then
+        raise_application_error( -20012, 'PL/SQL function returned an error.' );
+      elsif pubkey_alg != KEY_TYPE_RSA
+      then
+        raise_application_error( -20013, 'invalid cipher type passed' );
+      elsif enc_alg is null
+      then
+        raise_application_error( -20014, 'PL/SQL function returned an error.' );
+      elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
+      then
+        raise_application_error( -20015, 'invalid cipher type passed' );
+      elsif not parse_DER_RSA_PRIV_key( utl_encode.base64_decode( prv_key ), l_key_parameters )
+      then
+        raise_application_error( -20016, 'PL/SQL function returned an error.' );
+      end if;
+      l_k := utl_raw.length( src );
+      if l_k > utl_raw.length( l_key_parameters(1) )
+      then
+        raise_application_error( -20017, 'PL/SQL function returned an error.' );
+      end if;
+      l_hash_type := HASH_SH256;
+      l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
+      l_em := demag( powmod( mag( src ), mag( l_key_parameters(3) ), mag( l_key_parameters(1) ) ) );
+      if utl_raw.length( l_em ) < l_k
+      then
+        l_em := utl_raw.concat( utl_raw.copies( '00', l_k - utl_raw.length( l_em ) ), l_em );
+      end if;
+      if utl_raw.substr( l_em, 1, 1 ) != '00'
+      then
+        raise_application_error( -20018, 'PL/SQL function returned an error.' );
+      end if;
+      l_x := utl_raw.substr( l_em, 2 + l_k0 );
+      l_r := utl_raw.bit_xor( utl_raw.substr( l_em, 2, l_k0 ), mgf1( l_x, l_k0, l_hash_type ) );
+      l_rv := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
+      if utl_raw.substr( l_rv, 1, l_k0 ) != hextoraw( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' )
+      then
+        raise_application_error( -20019, 'PL/SQL function returned an error.' );
+      end if;
+      for i in l_k0 + 1 .. utl_raw.length( l_rv )
+      loop
+        l_idx := i;
+        l_tmp := utl_raw.substr( l_rv, i, 1 );
+        exit when l_tmp = '01';
+        if l_tmp != '00'
+        then
+          raise_application_error( -20020, 'PL/SQL function returned an error.' );
+        end if;
+      end loop;
+      return utl_raw.substr( l_rv, l_idx + 1 );
+    end;
+    --
 end;
 /
