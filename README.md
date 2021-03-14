@@ -2,6 +2,8 @@
 A plsql implementation of some functions/procedures in dbms_crypto
 
 This does include
+* pkencrypt/pkdecrypt public/private key encryption/decryption with the following algorithms
+  - RSA
 * hash and mac function with the following algorithms
   - MD4
   - MD5
