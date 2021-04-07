@@ -108,6 +108,21 @@ SOFTWARE.
                     , enc_alg binary_integer
                     )
   return raw;
+--
+  function sign( src raw
+               , prv_key raw
+               , pubkey_alg binary_integer
+               , sign_alg binary_integer
+               )
+  return raw;
+--
+  function verify( src raw
+                 , sign raw
+                 , pub_key raw
+                 , pubkey_alg binary_integer
+                 , sign_alg binary_integer
+                 )
+  return boolean;
 end;
 /
 
@@ -126,7 +141,7 @@ is
   c_ASN1_SH384 raw(100) := '3041300D060960864801650304020205000430';
   c_ASN1_SH512 raw(100) := '3051300D060960864801650304020305000440';
 --
-  c_INTEGER  raw(1) := '02';
+  c_INTEGER    raw(1) := '02';
   c_BIT_STRING raw(1) := '03';
   c_OCTECT     raw(1) := '04';
   c_NULL       raw(1) := '05';
@@ -192,6 +207,32 @@ is
       rv := to_char( p1( i ), cfmt2 ) || rv;
     end loop;
     return nvl( ltrim( rv, '0' ), '0' );
+  end;
+  --
+  function r_greater_equal( x tp_mag, y tp_mag )
+  return boolean
+  is
+    rv boolean := true;
+    xc pls_integer := x.count;
+    yc pls_integer := y.count;
+  begin
+    if xc > yc
+    then
+      return true;
+    elsif xc < yc
+    then
+      return false;
+    end if; 
+    for i in reverse 0 .. xc - 1
+    loop
+      exit when x(i) > y(i);
+      if x(i) < y(i)
+      then
+        rv := false;
+        exit;
+      end if;
+    end loop;
+    return rv;
   end;
   --
   function rsub( p1 tp_mag, p2 tp_mag )
@@ -2072,7 +2113,7 @@ is
     ( key varchar2
     , p_decrypt_key out nocopy tp_aes_tab
     )
-is
+  is
     Se tp_aes_tab;
     rek tp_aes_tab;
     rcon tp_aes_tab;
@@ -2574,12 +2615,12 @@ is
     t_key.extend(8);
     for i in 1 .. 8
     loop
-     t_key(i) := to_number( utl_raw.substr( p_key, i, 1 ), 'XX' );
+      t_key(i) := to_number( utl_raw.substr( p_key, i, 1 ), 'XX' );
     end loop;
     pclm.extend(56);
     for j in 1 .. 56
     loop
-      pclm(j) := sign( bitand( t_key( trunc( pcl( j ) / 8 ) + 1 ), bytebit( bitand( pcl( j ), 7 ) + 1 ) ) );
+      pclm(j) := standard.sign( bitand( t_key( trunc( pcl( j ) / 8 ) + 1 ), bytebit( bitand( pcl( j ), 7 ) + 1 ) ) );
     end loop;
     kn.extend(32);
     pcr.extend(56);
@@ -2668,12 +2709,12 @@ is
     t_left := bitxor32( t_left, t_tmp );
     t_tmp := bitand( bitxor32( shr( t_right, 8 ), t_left ), to_number( '00ff00ff', 'xxxxxxxx' ) );
     t_right := bitxor32( t_right, shl( t_tmp, 8 ) );
-    t_right := t_right * 2 + sign( bitand( t_right, 2147483648 ) );
+    t_right := t_right * 2 + standard.sign( bitand( t_right, 2147483648 ) );
     t_left := bitxor32( t_left, t_tmp );
     t_tmp := bitand( bitxor32( t_right , t_left ), to_number( 'aaaaaaaa', 'xxxxxxxx' ) );
     t_right := bitxor32( t_right, t_tmp );
     t_left := bitxor32( t_left, t_tmp );
-    t_left := t_left * 2 + sign( bitand( t_left, 2147483648 ) );
+    t_left := t_left * 2 + standard.sign( bitand( t_left, 2147483648 ) );
 --
     for i in 1 .. 8
     loop
@@ -3113,144 +3154,389 @@ $END
     end case;
     return t_decr;
   end;
---
-    function pkEncrypt( src raw
-                      , pub_key raw
-                      , pubkey_alg binary_integer
-                      , enc_alg binary_integer
-                      )
-    return raw
-    is
-      -- https://tools.ietf.org/html/rfc8017#section-7.1.1
-      l_rv raw(32767);
-      l_key_parameters tp_key_parameters;
-      l_k pls_integer;
-      l_ml pls_integer;
-      l_k0 pls_integer;
-      l_hash_type pls_integer;
-      l_x raw(32767);
-      l_y raw(32767);
-      l_em raw(32767);
-      l_r raw(3999);
-    begin
-      if src is null
+  --
+  function pkEncrypt( src raw
+                    , pub_key raw
+                    , pubkey_alg binary_integer
+                    , enc_alg binary_integer
+                    )
+  return raw
+  is
+    -- https://tools.ietf.org/html/rfc8017#section-7.1.1
+    l_rv raw(32767);
+    l_key_parameters tp_key_parameters;
+    l_k pls_integer;
+    l_ml pls_integer;
+    l_k0 pls_integer;
+    l_hash_type pls_integer;
+    l_x raw(32767);
+    l_y raw(32767);
+    l_em raw(32767);
+    l_r raw(3999);
+  begin
+    if src is null
+    then
+      raise_application_error( -20010, 'No input buffer provided.' );
+    elsif pub_key is null
+    then
+      raise_application_error( -20011, 'no key provided' );
+    elsif pubkey_alg is null
+    then
+      raise_application_error( -20012, 'PL/SQL function returned an error.' );
+    elsif pubkey_alg != KEY_TYPE_RSA
+    then
+      raise_application_error( -20013, 'invalid cipher type passed' );
+    elsif enc_alg is null
+    then
+      raise_application_error( -20014, 'PL/SQL function returned an error.' );
+    elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
+    then
+      raise_application_error( -20015, 'invalid cipher type passed' );
+    elsif not parse_DER_RSA_PUB_key( utl_encode.base64_decode( pub_key ), l_key_parameters )
+    then
+      raise_application_error( -20016, 'PL/SQL function returned an error.' );
+    end if;
+    l_hash_type := HASH_SH256;
+    l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
+    l_k := trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8;
+    l_ml := utl_raw.length( src );
+    if l_ml > l_k - 2 * l_k0 - 2
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    l_x := utl_raw.concat( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                         , case when l_k - 2 * l_k0 - 2 - l_ml > 0 then utl_raw.copies( '00', l_k - 2 * l_k0 - 2 - l_ml ) end
+                         , '01'
+                         , src
+                         );
+    l_r := randombytes( l_k0 );
+    l_y := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
+    l_em := utl_raw.concat( utl_raw.bit_xor( mgf1( l_y, l_k0, l_hash_type ), l_r ), l_y );
+    l_rv := demag( powmod( mag( l_em ), mag( l_key_parameters(2) ), mag( l_key_parameters(1) ) ) );
+    return l_rv;
+  end;
+  --
+  function pkDecrypt( src raw
+                    , prv_key raw
+                    , pubkey_alg binary_integer
+                    , enc_alg binary_integer
+                    )
+  return raw
+  is
+    -- https://tools.ietf.org/html/rfc8017#section-7.1.2
+    l_rv raw(32767);
+    l_k pls_integer;
+    l_k0 pls_integer;
+    l_hash_type pls_integer;
+    l_em raw(32767);
+    l_x raw(32767);
+    l_tmp raw(1);
+    l_r raw(3999);
+    l_idx pls_integer;
+    l_key_parameters tp_key_parameters;
+  begin
+    if src is null
+    then
+      raise_application_error( -20010, 'No input buffer provided.' );
+    elsif prv_key is null
+    then
+      raise_application_error( -20011, 'no key provided' );
+    elsif pubkey_alg is null
+    then
+      raise_application_error( -20012, 'PL/SQL function returned an error.' );
+    elsif pubkey_alg != KEY_TYPE_RSA
+    then
+      raise_application_error( -20013, 'invalid cipher type passed' );
+    elsif enc_alg is null
+    then
+      raise_application_error( -20014, 'PL/SQL function returned an error.' );
+    elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
+    then
+      raise_application_error( -20015, 'invalid cipher type passed' );
+    elsif not parse_DER_RSA_PRIV_key( utl_encode.base64_decode( prv_key ), l_key_parameters )
+    then
+      raise_application_error( -20016, 'PL/SQL function returned an error.' );
+    end if;
+    l_k := utl_raw.length( src );
+    if l_k > utl_raw.length( l_key_parameters(1) )
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    l_hash_type := HASH_SH256;
+    l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
+    l_em := demag( powmod( mag( src ), mag( l_key_parameters(3) ), mag( l_key_parameters(1) ) ) );
+    if utl_raw.length( l_em ) < l_k
+    then
+      l_em := utl_raw.concat( utl_raw.copies( '00', l_k - utl_raw.length( l_em ) ), l_em );
+    end if;
+    if utl_raw.substr( l_em, 1, 1 ) != '00'
+    then
+      raise_application_error( -20018, 'PL/SQL function returned an error.' );
+    end if;
+    l_x := utl_raw.substr( l_em, 2 + l_k0 );
+    l_r := utl_raw.bit_xor( utl_raw.substr( l_em, 2, l_k0 ), mgf1( l_x, l_k0, l_hash_type ) );
+    l_rv := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
+    if utl_raw.substr( l_rv, 1, l_k0 ) != hextoraw( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' )
+    then
+      raise_application_error( -20019, 'PL/SQL function returned an error.' );
+    end if;
+    for i in l_k0 + 1 .. utl_raw.length( l_rv )
+    loop
+      l_idx := i;
+      l_tmp := utl_raw.substr( l_rv, i, 1 );
+      exit when l_tmp = '01';
+      if l_tmp != '00'
       then
-        raise_application_error( -20010, 'No input buffer provided.' );
-      elsif pub_key is null
-      then
-        raise_application_error( -20011, 'no key provided' );
-      elsif pubkey_alg is null
-      then
-        raise_application_error( -20012, 'PL/SQL function returned an error.' );
-      elsif pubkey_alg != KEY_TYPE_RSA
-      then
-        raise_application_error( -20013, 'invalid cipher type passed' );
-      elsif enc_alg is null
-      then
-        raise_application_error( -20014, 'PL/SQL function returned an error.' );
-      elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
-      then
-        raise_application_error( -20015, 'invalid cipher type passed' );
-      elsif not parse_DER_RSA_PUB_key( utl_encode.base64_decode( pub_key ), l_key_parameters )
-      then
-        raise_application_error( -20016, 'PL/SQL function returned an error.' );
+        raise_application_error( -20020, 'PL/SQL function returned an error.' );
       end if;
-      l_hash_type := HASH_SH256;
-      l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
-      l_k := trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8;
-      l_ml := utl_raw.length( src );
-      if l_ml > l_k - 2 * l_k0 - 2
+    end loop;
+    return utl_raw.substr( l_rv, l_idx + 1 );
+  end;
+  --
+  function sign( src raw
+               , prv_key raw
+               , pubkey_alg binary_integer
+               , sign_alg binary_integer
+               )
+  return raw
+  is
+    l_sz pls_integer;
+    l_tmp raw(3999);
+    l_min tp_mag;
+    l_mod tp_mag;
+    l_msg tp_mag;
+    l_key_parameters tp_key_parameters;
+  begin
+    if src is null
+    then
+      raise_application_error( -20010, 'No input buffer provided.' );
+    elsif prv_key is null
+    then
+      raise_application_error( -20011, 'no key provided' );
+    elsif pubkey_alg is null
+    then
+      raise_application_error( -20012, 'PL/SQL function returned an error.' );
+    elsif pubkey_alg != KEY_TYPE_RSA
+    then
+      raise_application_error( -20013, 'invalid cipher type passed' );
+    elsif sign_alg is null
+    then
+      raise_application_error( -20014, 'PL/SQL function returned an error.' );
+    elsif sign_alg not in ( SIGN_SHA224_RSA
+                          , SIGN_SHA256_RSA
+                          , SIGN_SHA256_RSA_X931
+                          , SIGN_SHA384_RSA
+                          , SIGN_SHA384_RSA_X931
+                          , SIGN_SHA512_RSA
+                          , SIGN_SHA512_RSA_X931
+                          , SIGN_SHA1_RSA
+                          , SIGN_SHA1_RSA_X931
+                          )
+    then
+      raise_application_error( -20015, 'invalid cipher type passed' );
+    elsif not parse_DER_RSA_PRIV_key( utl_encode.base64_decode( prv_key ), l_key_parameters )
+    then
+      raise_application_error( -20016, 'PL/SQL function returned an error.' );
+    elsif trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8 < 128
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    l_mod := mag( l_key_parameters(1) );
+    l_sz := trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8;
+    if sign_alg in ( SIGN_SHA256_RSA_X931
+                   , SIGN_SHA384_RSA_X931
+                   , SIGN_SHA512_RSA_X931
+                   , SIGN_SHA1_RSA_X931
+                   )
+    then
+      if sign_alg = SIGN_SHA1_RSA_X931
       then
-        raise_application_error( -20017, 'PL/SQL function returned an error.' );
+        l_tmp := utl_raw.concat( hash( src, HASH_SH1 ), c_X931_TRAILER_SH1 ); 
+      elsif sign_alg = SIGN_SHA512_RSA_X931
+      then
+        l_tmp := utl_raw.concat( hash( src, HASH_SH512 ), c_X931_TRAILER_SH512 ); 
+      elsif sign_alg = SIGN_SHA256_RSA_X931
+      then
+        l_tmp := utl_raw.concat( hash( src, HASH_SH256 ), c_X931_TRAILER_SH256 ); 
+      elsif sign_alg = SIGN_SHA384_RSA_X931
+      then
+        l_tmp := utl_raw.concat( hash( src, HASH_SH384 ), c_X931_TRAILER_SH384 ); 
       end if;
-      l_x := utl_raw.concat( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-                           , case when l_k - 2 * l_k0 - 2 - l_ml > 0 then utl_raw.copies( '00', l_k - 2 * l_k0 - 2 - l_ml ) end
-                           , '01'
-                           , src
-                           );
-      l_r := randombytes( l_k0 );
-      l_y := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
-      l_em := utl_raw.concat( utl_raw.bit_xor( mgf1( l_y, l_k0, l_hash_type ), l_r ), l_y );
-      l_rv := demag( powmod( mag( l_em ), mag( l_key_parameters(2) ), mag( l_key_parameters(1) ) ) );
-      return l_rv;
-    end;
-    --
-    function pkDecrypt( src raw
-                      , prv_key raw
-                      , pubkey_alg binary_integer
-                      , enc_alg binary_integer
-                      )
-    return raw
-    is
-      -- https://tools.ietf.org/html/rfc8017#section-7.1.2
-      l_rv raw(32767);
-      l_k pls_integer;
-      l_k0 pls_integer;
-      l_hash_type pls_integer;
-      l_em raw(32767);
-      l_x raw(32767);
-      l_tmp raw(1);
-      l_r raw(3999);
-      l_idx pls_integer;
-      l_key_parameters tp_key_parameters;
-    begin
-      if src is null
+      l_tmp := utl_raw.concat( '6B', utl_raw.copies( 'BB', l_sz - utl_raw.length( l_tmp ) - 2 ), 'BA', l_tmp ); 
+      l_msg := mag( l_tmp );
+      l_min := rsub( l_mod, l_msg );
+      if r_greater_equal( l_msg, l_min )
       then
-        raise_application_error( -20010, 'No input buffer provided.' );
-      elsif prv_key is null
-      then
-        raise_application_error( -20011, 'no key provided' );
-      elsif pubkey_alg is null
-      then
-        raise_application_error( -20012, 'PL/SQL function returned an error.' );
-      elsif pubkey_alg != KEY_TYPE_RSA
-      then
-        raise_application_error( -20013, 'invalid cipher type passed' );
-      elsif enc_alg is null
-      then
-        raise_application_error( -20014, 'PL/SQL function returned an error.' );
-      elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
-      then
-        raise_application_error( -20015, 'invalid cipher type passed' );
-      elsif not parse_DER_RSA_PRIV_key( utl_encode.base64_decode( prv_key ), l_key_parameters )
-      then
-        raise_application_error( -20016, 'PL/SQL function returned an error.' );
+        l_msg := l_min;
       end if;
-      l_k := utl_raw.length( src );
-      if l_k > utl_raw.length( l_key_parameters(1) )
+    else
+      if sign_alg = SIGN_SHA1_RSA
       then
-        raise_application_error( -20017, 'PL/SQL function returned an error.' );
-      end if;
-      l_hash_type := HASH_SH256;
-      l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
-      l_em := demag( powmod( mag( src ), mag( l_key_parameters(3) ), mag( l_key_parameters(1) ) ) );
-      if utl_raw.length( l_em ) < l_k
+        l_tmp := utl_raw.concat( c_ASN1_SH1, hash( src, HASH_SH1 ) ); 
+      elsif sign_alg = SIGN_SHA512_RSA
       then
-        l_em := utl_raw.concat( utl_raw.copies( '00', l_k - utl_raw.length( l_em ) ), l_em );
-      end if;
-      if utl_raw.substr( l_em, 1, 1 ) != '00'
+        l_tmp := utl_raw.concat( c_ASN1_SH512, hash( src, HASH_SH512 ) ); 
+      elsif sign_alg = SIGN_SHA256_RSA
       then
-        raise_application_error( -20018, 'PL/SQL function returned an error.' );
-      end if;
-      l_x := utl_raw.substr( l_em, 2 + l_k0 );
-      l_r := utl_raw.bit_xor( utl_raw.substr( l_em, 2, l_k0 ), mgf1( l_x, l_k0, l_hash_type ) );
-      l_rv := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
-      if utl_raw.substr( l_rv, 1, l_k0 ) != hextoraw( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' )
+        l_tmp := utl_raw.concat( c_ASN1_SH256, hash( src, HASH_SH256 ) ); 
+      elsif sign_alg = SIGN_SHA384_RSA
       then
-        raise_application_error( -20019, 'PL/SQL function returned an error.' );
+        l_tmp := utl_raw.concat( c_ASN1_SH384, hash( src, HASH_SH384 ) ); 
+      elsif sign_alg = SIGN_SHA224_RSA
+      then
+        l_tmp := utl_raw.concat( c_ASN1_SH224, hash( src, HASH_SH224 ) ); 
       end if;
-      for i in l_k0 + 1 .. utl_raw.length( l_rv )
+      l_tmp := utl_raw.concat( '01', utl_raw.copies( 'FF', l_sz - utl_raw.length( l_tmp ) - 3 ), '00', l_tmp ); 
+      l_msg := mag( l_tmp );
+    end if;
+    return demag( powmod( l_msg, mag( l_key_parameters(3) ), l_mod ) );
+  end;
+  --
+  function verify( src raw
+                 , sign raw
+                 , pub_key raw
+                 , pubkey_alg binary_integer
+                 , sign_alg binary_integer
+                 )
+  return boolean
+  is
+    l_mod tp_mag;
+    l_padded tp_mag;
+    l_tmp raw(1);
+    l_decr raw(3999);
+    l_idx pls_integer;
+    l_hash_type pls_integer;
+    l_key_parameters tp_key_parameters;
+    l_trailer raw(2);
+    l_rv boolean;
+  begin
+    if src is null
+    then
+      raise_application_error( -20010, 'No input buffer provided.' );
+    elsif sign is null
+    then
+      raise_application_error( -20011, 'invalid encryption/decryption/signature state passed' );
+    elsif pub_key is null
+    then
+      raise_application_error( -20012, 'no key provided' );
+    elsif pubkey_alg is null
+    then
+      raise_application_error( -20013, 'PL/SQL function returned an error.' );
+    elsif pubkey_alg != KEY_TYPE_RSA
+    then
+      raise_application_error( -20014, 'invalid cipher type passed' );
+    elsif sign_alg is null
+    then
+      raise_application_error( -20015, 'PL/SQL function returned an error.' );
+    elsif sign_alg not in ( SIGN_SHA224_RSA
+                          , SIGN_SHA256_RSA
+                          , SIGN_SHA256_RSA_X931
+                          , SIGN_SHA384_RSA
+                          , SIGN_SHA384_RSA_X931
+                          , SIGN_SHA512_RSA
+                          , SIGN_SHA512_RSA_X931
+                          , SIGN_SHA1_RSA
+                          , SIGN_SHA1_RSA_X931
+                          )
+    then
+      raise_application_error( -20016, 'invalid cipher type passed' );
+    elsif not parse_DER_RSA_PUB_key( utl_encode.base64_decode( pub_key ), l_key_parameters )
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    l_mod := mag( l_key_parameters(1) );
+    l_padded := powmod( mag( sign ), mag( l_key_parameters(2) ), l_mod );
+    if sign_alg in ( SIGN_SHA256_RSA_X931
+                   , SIGN_SHA384_RSA_X931
+                   , SIGN_SHA512_RSA_X931
+                   , SIGN_SHA1_RSA_X931
+                   )
+    then
+      if bitand( l_padded(0), 15 ) != 12
+      then
+        l_padded := rsub( l_mod, l_padded );
+      end if;
+      if bitand( l_padded(0), 15 ) != 12
+      then
+        return false;
+      end if;
+      l_decr := demag( l_padded );
+      if utl_raw.substr( l_decr, 1, 2 ) != hextoraw( '6BBB' )
+      then 
+        return false;
+      end if;
+      -- remove X9.31 padding
+      for i in 3 .. utl_raw.length( l_decr )
       loop
         l_idx := i;
-        l_tmp := utl_raw.substr( l_rv, i, 1 );
-        exit when l_tmp = '01';
-        if l_tmp != '00'
+        l_tmp := utl_raw.substr( l_decr, i, 1 );
+        exit when l_tmp = 'BA';
+        if l_tmp != hextoraw( 'BB' )
         then
-          raise_application_error( -20020, 'PL/SQL function returned an error.' );
+          return false;
         end if;
       end loop;
-      return utl_raw.substr( l_rv, l_idx + 1 );
-    end;
-    --
+      l_decr := utl_raw.substr( l_decr, l_idx + 1 );
+      l_trailer := utl_raw.substr( l_decr, -2 );
+      l_hash_type := case sign_alg                  
+                       when SIGN_SHA1_RSA_X931   then HASH_SH1
+                       when SIGN_SHA256_RSA_X931 then HASH_SH256
+                       when SIGN_SHA512_RSA_X931 then HASH_SH512
+                       when SIGN_SHA384_RSA_X931 then HASH_SH384
+                     end;
+      l_rv := (  ( sign_alg = SIGN_SHA1_RSA_X931 and l_trailer = c_X931_TRAILER_SH1 )
+              or ( sign_alg = SIGN_SHA512_RSA_X931 and l_trailer = c_X931_TRAILER_SH512 )
+              or ( sign_alg = SIGN_SHA256_RSA_X931 and l_trailer = c_X931_TRAILER_SH256 )
+              or ( sign_alg = SIGN_SHA384_RSA_X931 and l_trailer = c_X931_TRAILER_SH384 )
+              ) and utl_raw.substr( l_decr, 1, utl_raw.length( l_decr ) - 2 ) = hash( src, l_hash_type );
+    else
+      l_decr := demag( l_padded ); 
+      if utl_raw.substr( l_decr, 1, 2 ) != hextoraw( '01FF' )
+      then 
+        return false;
+      end if;
+      -- remove EMSA-PKCS1-v1_5 padding
+      for i in 3 .. utl_raw.length( l_decr )
+      loop
+        l_idx := i;
+        l_tmp := utl_raw.substr( l_decr, i, 1 );
+        exit when l_tmp = '00';
+        if l_tmp != hextoraw( 'FF' )
+        then
+          return false;
+        end if;
+      end loop;
+      l_decr := utl_raw.substr( l_decr, l_idx + 1 );
+      if sign_alg = SIGN_SHA1_RSA
+      then
+        l_hash_type := HASH_SH1;
+        l_idx := utl_raw.length( c_ASN1_SH1 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH1; 
+      elsif sign_alg = SIGN_SHA512_RSA
+      then
+        l_hash_type := HASH_SH512;
+        l_idx := utl_raw.length( c_ASN1_SH512 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH512; 
+      elsif sign_alg = SIGN_SHA256_RSA
+      then
+        l_hash_type := HASH_SH256;
+        l_idx := utl_raw.length( c_ASN1_SH256 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH256; 
+      elsif sign_alg = SIGN_SHA384_RSA
+      then
+        l_hash_type := HASH_SH384;
+        l_idx := utl_raw.length( c_ASN1_SH384 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH384; 
+      elsif sign_alg = SIGN_SHA224_RSA
+      then
+        l_hash_type := HASH_SH224;
+        l_idx := utl_raw.length( c_ASN1_SH224 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH224; 
+      end if;
+      l_rv := l_rv and l_idx > 10 and utl_raw.substr( l_decr, l_idx + 1 ) = hash( src, l_hash_type );
+    end if;
+    return l_rv;
+  end;
+  --
 end;
 /
