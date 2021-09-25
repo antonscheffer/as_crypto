@@ -146,13 +146,13 @@ is
   c_OCTECT     raw(1) := '04';
   c_NULL       raw(1) := '05';
   c_OID        raw(1) := '06';
-  c_SEQUENCE raw(1) := '30';
+  c_SEQUENCE   raw(1) := '30';
   type tp_key_parameters is table of raw(3999) index by pls_integer;
 --
   type tp_mag is table of number index by pls_integer;
   ccc number := 16; -- number of nibbles
   cm number := power( 16, ccc );
-  cmm number := cm-1;
+  cmm number := cm - 1;
   cm2 number := cm / 2;
   cmi number := power( 16, -ccc );
 --
@@ -732,6 +732,29 @@ is
     return monpro( xm, one);
   end;
   --
+  function strip_header_and_footer( p_key raw )
+  return raw
+  is
+    l_key varchar2(32767);
+  begin
+    l_key := utl_raw.cast_to_varchar2( p_key );
+    l_key := rtrim( ltrim( l_key, ' ' || chr(10) || chr(13) ) , ' ' || chr(10) || chr(13) );
+    if substr( l_key, 1, 1 ) = '-'
+    then
+      l_key := trim( '-' from l_key );
+      l_key := ltrim( substr( l_key, instr( l_key, '-' ) ), '-' || chr(10) || chr(13) );
+      l_key := rtrim( substr( l_key, 1, instr( l_key, '-', -1 ) ), '-' || chr(10) || chr(13) );
+    end if;
+    return  utl_raw.cast_to_raw( l_key );
+  end;
+  --
+  function base64_decode( p_key raw )
+  return raw
+  is
+  begin
+    return utl_encode.base64_decode( strip_header_and_footer( p_key ) );  
+  end;
+  --
   function get_len( p_key raw, p_ind in out pls_integer )
   return pls_integer
   is
@@ -836,18 +859,43 @@ is
   is
     l_dummy raw(3999);
     l_ind pls_integer;
+    l_len pls_integer;
+    l_tmp pls_integer;
   begin
     p_key_parameters.delete;
     check_starting_sequence( p_key, l_ind );
-    l_dummy := get_integer( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind );  -- version
+    if utl_raw.substr( p_key, l_ind, 1 ) = c_SEQUENCE
+    then -- PKCS#8
+      l_tmp := l_ind;
+      l_len := get_len( p_key, l_ind );
+      if get_oid( p_key, l_ind ) != '2A864886F70D010101' -- 1.2.840.113549.1.1.1 rsaEncryption
+      then
+        raise value_error;
+      end if;
+      l_ind := l_tmp + l_len + 2; -- skip optional stuff of AlgorithmIdentifier
+      if utl_raw.substr( p_key, l_ind, 1 ) = c_OCTECT
+      then
+        l_len := get_len( p_key, l_ind );
+      elsif utl_raw.substr( p_key, l_ind, 1 ) = c_BIT_STRING
+      then
+        l_len := get_len( p_key, l_ind );
+        l_ind := l_ind + 1; -- skip bits unused
+      else
+        raise value_error;
+      end if;
+      check_starting_sequence( p_key, l_ind );
+      l_dummy := get_integer( p_key, l_ind );  -- version
+    end if;
+    -- process PKCS#1
     p_key_parameters(1) := get_integer( p_key, l_ind ); -- n modulus
     p_key_parameters(2) := get_integer( p_key, l_ind ); -- e public
     p_key_parameters(3) := get_integer( p_key, l_ind ); -- d private
-    l_dummy := get_integer( p_key, l_ind );
-    l_dummy := get_integer( p_key, l_ind );
-    l_dummy := get_integer( p_key, l_ind );
-    l_dummy := get_integer( p_key, l_ind );
-    l_dummy := get_integer( p_key, l_ind );
+    l_dummy := get_integer( p_key, l_ind ); -- p prime1
+    l_dummy := get_integer( p_key, l_ind ); -- q prime2
+    l_dummy := get_integer( p_key, l_ind ); -- d mod (p-1) exponent1
+    l_dummy := get_integer( p_key, l_ind ); -- d mod (q-1) exponent2
+    l_dummy := get_integer( p_key, l_ind ); -- (inverse of q) mod p coefficient
     return true;
   exception when value_error
     then
@@ -863,24 +911,42 @@ is
   is
     l_dummy raw(3999);
     l_ind pls_integer;
+    l_len pls_integer;
+    l_tmp pls_integer;
   begin
     p_key_parameters.delete;
     check_starting_sequence( p_key, l_ind );
-    check_starting_sequence( p_key, l_ind );
-    l_dummy := get_oid( p_key, l_ind ); -- 2A864886F70D010101, 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
-    l_dummy := get_null( p_key, l_ind );
-    l_dummy := get_bit_string( p_key, l_ind );
-    l_ind := null;
-    check_starting_sequence( l_dummy, l_ind );
-    p_key_parameters(1) := get_integer( l_dummy, l_ind ); -- n modulus
-    p_key_parameters(2) := get_integer( l_dummy, l_ind ); -- e public
+    if utl_raw.substr( p_key, l_ind, 1 ) = c_SEQUENCE
+    then -- PKCS#8
+      l_tmp := l_ind;
+      l_len := get_len( p_key, l_ind );
+      if get_oid( p_key, l_ind ) != '2A864886F70D010101' -- 1.2.840.113549.1.1.1 rsaEncryption
+      then
+        raise value_error;
+      end if;
+      l_ind := l_tmp + l_len + 2; -- skip optional stuff of AlgorithmIdentifier
+      if utl_raw.substr( p_key, l_ind, 1 ) = c_OCTECT
+      then
+        l_len := get_len( p_key, l_ind );
+      elsif utl_raw.substr( p_key, l_ind, 1 ) = c_BIT_STRING
+      then
+        l_len := get_len( p_key, l_ind );
+        l_ind := l_ind + 1; -- skip bits unused
+      else
+        raise value_error;
+      end if;
+      check_starting_sequence( p_key, l_ind );
+    end if;
+    -- process PKCS#1
+    p_key_parameters(1) := get_integer( p_key, l_ind ); -- n modulus
+    p_key_parameters(2) := get_integer( p_key, l_ind ); -- e public
     return true;
   exception when value_error
     then
       p_key_parameters.delete;
       return false;
   end;
---
+  --
   function mgf1( p_seed raw, p_len pls_integer, p_hash_type pls_integer )
   return raw
   is
@@ -3091,7 +3157,7 @@ $END
       for i in 0 .. length( t_tmp ) / t_bs2 - 1
       loop
         case bitand( typ, 3840 )
-         when CHAIN_CBC then
+          when CHAIN_CBC then
             t_raw := decr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
             t_raw := utl_raw.bit_xor( t_raw, t_iv );
             t_iv := substr( t_tmp, i * t_bs2 + 1, t_bs2 );
@@ -3192,7 +3258,7 @@ $END
     elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PUB_key( utl_encode.base64_decode( pub_key ), l_key_parameters )
+    elsif not parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     end if;
@@ -3253,7 +3319,7 @@ $END
     elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PRIV_key( utl_encode.base64_decode( prv_key ), l_key_parameters )
+    elsif not parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     end if;
@@ -3334,7 +3400,7 @@ $END
                           )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PRIV_key( utl_encode.base64_decode( prv_key ), l_key_parameters )
+    elsif not parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     elsif trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8 < 128
@@ -3440,7 +3506,7 @@ $END
                           )
     then
       raise_application_error( -20016, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PUB_key( utl_encode.base64_decode( pub_key ), l_key_parameters )
+    elsif not parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
     then
       raise_application_error( -20017, 'PL/SQL function returned an error.' );
     end if;
