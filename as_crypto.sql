@@ -3,7 +3,7 @@ is
 /*
 MIT License
 
-Copyright (c) 2016-2021 Anton Scheffer
+Copyright (c) 2016-2022 Anton Scheffer
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -69,6 +69,8 @@ SOFTWARE.
     PKENCRYPT_RSA_PKCS1_OAEP constant pls_integer := 1;
     -- Public Key Type Algorithm
     KEY_TYPE_RSA constant pls_integer := 1;
+    KEY_TYPE_EC constant pls_integer := 2;
+    KEY_TYPE_EdDSA constant pls_integer := 3;
     -- Public Key Signature Type Algorithm
     SIGN_SHA224_RSA      constant pls_integer   := 1; -- SHA 224 bit hash function with RSA
     SIGN_SHA256_RSA      constant pls_integer   := 2; -- SHA 256 bit hash function with RSA
@@ -79,6 +81,13 @@ SOFTWARE.
     SIGN_SHA512_RSA_X931 constant pls_integer   := 7; -- SHA 512 bit hash function with RSA and X931 padding
     SIGN_SHA1_RSA        constant pls_integer   := 8; -- SHA1 hash function with RSA
     SIGN_SHA1_RSA_X931   constant pls_integer   := 9; -- SHA1 hash function with RSA and X931 padding
+    SIGN_SHA256withECDSA        constant pls_integer   := 10;
+    SIGN_SHA256withECDSAinP1363 constant pls_integer   := 11;
+    SIGN_SHA384withECDSA        constant pls_integer   := 12;
+    SIGN_SHA384withECDSAinP1363 constant pls_integer   := 13;
+    SIGN_SHA512withECDSA        constant pls_integer   := 14;
+    SIGN_SHA512withECDSAinP1363 constant pls_integer   := 15;
+    SIGN_Ed25519                constant pls_integer   := 16;
 --
   function hash( src raw, typ pls_integer )
   return raw;
@@ -155,7 +164,44 @@ is
   cmm number := cm - 1;
   cm2 number := cm / 2;
   cmi number := power( 16, -ccc );
+  --
+  function mag( p1 varchar2 )
+  return tp_mag;
+  --
+  c_mag_0 constant tp_mag := mag( '0' );
+  c_mag_1 constant tp_mag := mag( '1' );
+  c_mag_3 constant tp_mag := mag( '3' );
+  c_mag_4 constant tp_mag := mag( '4' );
 --
+  type tp_ec_point is record
+    ( x tp_mag
+    , y tp_mag
+    , z tp_mag
+    );
+  type tp_ec_curve is record
+    ( prime tp_mag
+    , group_order tp_mag
+    , a tp_mag
+    , b tp_mag
+    , p_plus_1_div_4 tp_mag
+    , generator tp_ec_point
+    , nlen pls_integer
+    );
+  type tp_ed_point is record
+    ( x tp_mag
+    , y tp_mag
+    , z tp_mag
+    , t tp_mag
+    );
+  type tp_ed_curve is record
+    ( nlen pls_integer
+    , l tp_mag
+    , d tp_mag
+    , q tp_mag
+    , i tp_mag
+    , b tp_ed_point
+    );
+  --
   bmax32 constant number := power( 2, 32 ) - 1;
   bmax64 constant number := power( 2, 64 ) - 1;
   type tp_crypto is table of number;
@@ -209,6 +255,23 @@ is
     return nvl( ltrim( rv, '0' ), '0' );
   end;
   --
+  function requal( x tp_mag, y tp_mag )
+  return boolean
+  is
+    rv boolean;
+  begin
+    if x.count != y.count
+    then
+      return false;
+    end if;
+    for i in 0 .. x.count - 1
+    loop
+      rv := x(i) = y(i);
+      exit when not rv;
+    end loop;
+    return rv;
+  end;
+  --
   function r_greater_equal( x tp_mag, y tp_mag )
   return boolean
   is
@@ -232,6 +295,51 @@ is
         exit;
       end if;
     end loop;
+    return rv;
+  end;
+  --
+  function radd( x tp_mag, y tp_mag )
+  return tp_mag
+  is
+    c number;
+    t number;
+    rv tp_mag;
+    xc pls_integer := x.count;
+    yc pls_integer := y.count;
+  begin
+    if xc < yc
+    then
+      return radd( y, x );
+    end if;
+    c := 0;
+    for i in 0 .. yc - 1
+    loop
+      t := x(i) + y(i) + c;
+      if t >= cm
+      then
+        t := t - cm;
+        c := 1;
+      else
+        c := 0;
+      end if;
+      rv(i) := t;
+    end loop;
+    for i in yc .. xc - 1
+    loop
+      t := x(i) + c;
+      if t >= cm
+      then
+        t := t - cm;
+        c := 1;
+      else
+        c := 0;
+      end if;
+      rv(i) := t;
+    end loop;
+    if c > 0
+    then
+      rv( xc ) := 1;
+    end if;
     return rv;
   end;
   --
@@ -274,6 +382,48 @@ is
     if rv.count = 0
     then
       rv(0) := 0;
+    end if;
+    return rv;
+  end;
+  --
+  function nsub( x tp_mag, y number )
+  return tp_mag
+  is
+    b number;
+    s tp_mag := x;
+  begin
+    b := y;
+    for i in 0 .. s.count - 1
+    loop
+      s( i ) := s( i ) - b;
+      if s( i ) < 0
+      then
+        b := 1;
+        s( i ) := s( i ) + cm;
+      else
+        exit;
+      end if;
+    end loop;
+    return s;
+  end;
+  --
+  function nmul( x tp_mag, y number )
+  return tp_mag
+  is
+    t number;
+    c number := 0;
+    ci pls_integer;
+    rv tp_mag := x;
+  begin
+    for i in 0 .. rv.count - 1
+    loop
+      t := rv(i) * y + c;
+      c := trunc( t * cmi );
+      rv(i) := t - c * cm;
+    end loop;
+    if c > 0
+    then
+      rv(rv.count) := c;
     end if;
     return rv;
   end;
@@ -534,6 +684,81 @@ is
     return rv;
   end;
   --
+  function addmod( p1 tp_mag, p2 tp_mag, m tp_mag )
+  return tp_mag
+  is
+    rv tp_mag := radd( p1, p2 );
+  begin
+    if r_greater_equal( rv, m )
+    then
+      rv := rsub( rv, m );
+    end if;
+    return rv;
+  end;
+  --
+  function submod( p1 tp_mag, p2 tp_mag, m tp_mag )
+  return tp_mag
+  is
+    rv tp_mag := radd( p1, rsub( m, p2 ) );
+  begin
+    if r_greater_equal( rv, m )
+    then
+      rv := rsub( rv, m );
+    end if;
+    return rv;
+  end;
+  --
+  function mulmod( p1 tp_mag, p2 tp_mag, m tp_mag )
+  return tp_mag
+  is
+  begin
+    return xmod( rmul( p1, p2 ), m );
+  end;
+  --
+  function small_nmulmod( p1 tp_mag, n number, m tp_mag )
+  return tp_mag
+  is
+    rv tp_mag := nmul( p1, n );
+  begin
+    for i in 1 .. 5  -- expect n < 5
+    loop
+      exit when not r_greater_equal( rv, m );
+      if i = 5
+      then
+        rv := xmod( rv, m );
+      else
+        rv := rsub( rv, m );
+      end if;
+    end loop;
+    return rv;
+  end;
+  --
+  function rdiv2( p1 tp_mag )
+  return tp_mag
+  is
+    c number;
+    t number;
+    rv tp_mag;
+  begin
+    if p1.count = 1
+    then
+      rv(0) := trunc( p1( 0 ) / 2 );
+    else
+      c := 0;
+      for i in reverse 0 .. p1.count - 1
+      loop
+        t := p1( i ) + c;
+        rv( i ) := trunc( t / 2 );
+        c := case when bitand( t, 1 ) = 1 then cm else 0 end;
+      end loop;
+      while rv( rv.last ) = 0
+      loop
+        rv.delete( rv.last );
+      end loop;
+    end if;
+    return rv;
+  end;
+  --
   function powmod( pa tp_mag, pb tp_mag, pm tp_mag )
   return tp_mag
   is
@@ -730,6 +955,433 @@ is
     end loop;
     one(0) := 1;
     return monpro( xm, one);
+  end;
+  --
+  procedure get_named_ed_curve( p_name in varchar2, p_curve out tp_ed_curve )
+  is
+  begin
+    if p_name in ( 'ed25519', 'ssh-ed25519' )
+    then
+      p_curve.nlen := 32;  -- b / 8
+      p_curve.l := mag( '1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed' );   -- prime order 2^252 + 27742317777372353535851937790883648493
+      p_curve.d := mag( '52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3' );   -- -121665/121666 = 37095705934669439343138083508754565189542113879843219016388785533085940283555
+      p_curve.q := mag( '7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed' );   -- 2^255 - 19  (mod 2^256)
+      p_curve.i := mag( '2B8324804FC1DF0B2B4D00993DFBD7A72F431806AD2FE478C4EE1B274A0EA0B0' );   -- sqrt(-1) mod q
+      p_curve.b.x := mag( '216936D3CD6E53FEC0A4E231FDD6DC5C692CC7609525A7B2C9562D608F25D51A' ); -- 15112221349535400772501151409588531511454012693041857206046113283949847762202
+      p_curve.b.y := mag( '6666666666666666666666666666666666666666666666666666666666666658' ); -- 46316835694926478169428394003475163141307993866256225615783033603165251855960
+      p_curve.b.z := c_mag_1;
+      p_curve.b.t := mag( '67875F0FD78B766566EA4E8E64ABE37D20F09F80775152F56DDE8AB3A5B7DDA3' );
+    end if;
+  end;
+  --
+  procedure get_named_curve( p_name in varchar2, p_curve out tp_ec_curve )
+  is
+  begin
+    if p_name = 'nistp256'
+    then
+      p_curve.nlen := 32;
+      p_curve.prime          := mag( 'ffffffff00000001000000000000000000000000ffffffffffffffffffffffff' );
+      p_curve.group_order    := mag( 'ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551' );
+      p_curve.a              := mag( 'ffffffff00000001000000000000000000000000fffffffffffffffffffffffc' );
+      p_curve.b              := mag( '5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b' );
+      p_curve.generator.x    := mag( '6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296' );
+      p_curve.generator.y    := mag( '4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5' );
+      p_curve.p_plus_1_div_4 := mag( '3fffffffc0000000400000000000000000000000400000000000000000000000' );
+    elsif p_name = 'nistp384'
+    then
+      p_curve.nlen := 48;
+      p_curve.prime          := mag( 'fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff' );
+      p_curve.group_order    := mag( 'ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973' );
+      p_curve.a              := mag( 'fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000fffffffc' );
+      p_curve.b              := mag( 'b3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef' );
+      p_curve.generator.x    := mag( 'aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7' );
+      p_curve.generator.y    := mag( '3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f' );
+      p_curve.p_plus_1_div_4 := mag( '3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffbfffffffc00000000000000040000000' );
+    elsif p_name = 'nistp521'
+    then
+      p_curve.nlen := 66;
+      p_curve.prime          := mag( '1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' );
+      p_curve.group_order    := mag( '1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409' );
+      p_curve.a              := mag( '1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc' );
+      p_curve.b              := mag( '51953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f00' );
+      p_curve.generator.x    := mag( 'c6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66' );
+      p_curve.generator.y    := mag( '11839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650' );
+      p_curve.p_plus_1_div_4 := mag( '8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000' );
+    end if;
+  end;
+  --
+  procedure bytes_to_ec_point( p_bytes raw, p_curve tp_ec_curve, p_point out tp_ec_point )
+  is
+    l_first varchar2(2);
+    l_y2 tp_mag;
+  begin
+    l_first := utl_raw.substr( p_bytes, 1, 1 );
+    if not (  ( l_first = '04' and utl_raw.length( p_bytes ) = 1 + 2 * p_curve.nlen )
+           or ( l_first in ( '02', '03' ) and utl_raw.length( p_bytes ) = 1 + p_curve.nlen )
+           )
+    then
+      raise_application_error( -20024, 'invalid encoded EC point.' );
+    end if;
+    if l_first = '04'
+    then
+      p_point.x := mag( utl_raw.substr( p_bytes, 2, p_curve.nlen ) );
+      p_point.y := mag( utl_raw.substr( p_bytes, 2 + p_curve.nlen, p_curve.nlen ) );
+      -- check if it's a point on the curve
+      if not requal( addmod( addmod( powmod( p_point.x, mag( '3' ), p_curve.prime )
+                                   , mulmod( p_point.x, p_curve.a, p_curve.prime )
+                                   , p_curve.prime
+                                   )
+                           , p_curve.b
+                           , p_curve.prime
+                           )
+                   , mulmod( p_point.y, p_point.y, p_curve.prime )
+                   )
+      then
+        raise_application_error( -20025, 'EC Point is not on EC Curve.' );
+      end if;
+    else
+      -- see https://tools.ietf.org/id/draft-jivsov-ecc-compact-05.html
+      p_point.x := mag( utl_raw.substr( p_bytes, 2, p_curve.nlen ) );
+      l_y2 := addmod( addmod( powmod( p_point.x, mag( '3' ), p_curve.prime )
+                            , mulmod( p_point.x, p_curve.a, p_curve.prime )
+                            , p_curve.prime
+                            )
+                    , p_curve.b
+                    , p_curve.prime
+                    );
+      if l_first = '02'
+      then
+        p_point.y := powmod( l_y2, p_curve.p_plus_1_div_4, p_curve.prime );
+      else
+        p_point.y := rsub( p_curve.prime, powmod( l_y2, p_curve.p_plus_1_div_4, p_curve.prime ) );
+      end if;
+      -- raise_application_error( -20023, 'EC Point compression not supported.' );
+    end if;
+  end;
+  --
+  function from_jacobian( p_point tp_ec_point, p_curve tp_ec_curve )
+  return tp_ec_point
+  is
+    l_inv tp_mag;
+    l_tmp tp_mag;
+    l_rv tp_ec_point;
+  begin
+    if p_point.z(0) = 1 and p_point.z.count = 1
+    then
+      l_rv.x := p_point.x;
+      l_rv.y := p_point.y;
+    elsif p_point.y(0) = 0 and p_point.y.count = 1
+    then -- infinity
+      l_rv.x := c_mag_0;
+      l_rv.y := c_mag_0;
+    else
+      l_inv := powmod( p_point.z, nsub( p_curve.prime, 2 ), p_curve.prime );
+      l_tmp := mulmod( l_inv, l_inv, p_curve.prime );
+      l_rv.x := mulmod( p_point.x, l_tmp, p_curve.prime );
+      l_rv.y := mulmod( p_point.y, mulmod( l_tmp, l_inv, p_curve.prime ), p_curve.prime );
+    end if;
+    return l_rv;
+  end;
+  --
+  function to_jacobian( p_point tp_ec_point )
+  return tp_ec_point
+  is
+    l_rv tp_ec_point;
+  begin
+    l_rv.x := p_point.x;
+    l_rv.y := p_point.y;
+    l_rv.z := mag( '1' );
+    return l_rv;
+  end;
+  --
+  function double_jpoint( p tp_ec_point, c tp_ec_curve )
+  return tp_ec_point
+  is
+    l_ysqr tp_mag;
+    l_z4 tp_mag;
+    l_s tp_mag;
+    l_m tp_mag;
+    l_rv tp_ec_point;
+    c_mag_4 tp_mag := mag( '4' );
+  begin
+    if p.y(0) = 0 and p.y.count = 1
+    then -- infinity
+      l_rv.x := c_mag_0;
+      l_rv.y := c_mag_0;
+      l_rv.z := c_mag_0;
+    else
+      l_ysqr := mulmod( p.y, p.y, c.prime );
+      l_z4 := powmod( p.z, c_mag_4, c.prime );
+      l_s := mulmod( small_nmulmod( p.x, 4, c.prime ), l_ysqr, c.prime );
+      l_m := addmod( small_nmulmod( mulmod( p.x, p.x, c.prime )
+                                  , 3
+                                  , c.prime
+                                  )
+                   , mulmod( c.a, l_z4, c.prime )
+                   , c.prime
+                   );
+      l_rv.x := submod( mulmod( l_m, l_m, c.prime )
+                      , small_nmulmod( l_s, 2, c.prime )
+                      , c.prime
+                      );
+      l_rv.y := submod( mulmod( l_m, submod( l_s, l_rv.x, c.prime ), c.prime )
+                      , small_nmulmod( mulmod( l_ysqr, l_ysqr, c.prime ), 8, c.prime )
+                      , c.prime
+                      );
+      l_rv.z := mulmod( small_nmulmod( p.y, 2, c.prime ), p.z, c.prime );
+    end if;
+    return l_rv;
+  end;
+  --
+  function add_jpoint( p1 tp_ec_point, p2 tp_ec_point, c tp_ec_curve )
+  return tp_ec_point
+  is
+    l_p1z_pwr2 tp_mag;
+    l_p2z_pwr2 tp_mag;
+    l_u1 tp_mag;
+    l_u2 tp_mag;
+    l_s1 tp_mag;
+    l_s2 tp_mag;
+    l_h tp_mag;
+    l_h2 tp_mag;
+    l_h3 tp_mag;
+    l_r tp_mag;
+    l_u1h2 tp_mag;
+    l_rv tp_ec_point;
+  begin
+    if p1.y(0) = 0 and p1.y.count = 1
+    then -- infinity
+      return p2;
+    end if;
+    if p2.y(0) = 0 and p2.y.count = 1
+    then -- infinity
+      return p1;
+    end if;
+    l_p1z_pwr2 := mulmod( p1.z, p1.z, c.prime );
+    l_p2z_pwr2 := mulmod( p2.z, p2.z, c.prime );
+    l_u1 := mulmod( p1.x, l_p2z_pwr2, c.prime );
+    l_u2 := mulmod( p2.x, l_p1z_pwr2, c.prime );
+    l_s1 := mulmod( p1.y, mulmod( l_p2z_pwr2, p2.z, c.prime ), c.prime );
+    l_s2 := mulmod( p2.y, mulmod( l_p1z_pwr2, p1.z, c.prime ), c.prime );
+    if requal( l_u1, l_u2 )
+    then
+       if requal( l_s1, l_s2 )
+       then
+         l_rv := double_jpoint( p1, c );
+       else
+         l_rv.x := c_mag_0; -- infinity
+         l_rv.y := c_mag_0;
+         l_rv.z := c_mag_0;
+       end if;
+    else
+      l_h := submod( l_u2, l_u1, c.prime );
+      l_r := submod( l_s2, l_s1, c.prime );
+      l_h2 := mulmod( l_h, l_h, c.prime );
+      l_h3 := mulmod( l_h2, l_h, c.prime );
+      l_u1h2 := mulmod( l_h2, l_u1, c.prime );
+      l_rv.x := submod( submod( mulmod( l_r, l_r, c.prime ), l_h3, c.prime )
+                      , small_nmulmod( l_u1h2, 2, c.prime )
+                      , c.prime
+                      );
+      l_rv.y := submod( mulmod( l_r, submod( l_u1h2, l_rv.x, c.prime ), c.prime )
+                      , mulmod( l_s1, l_h3, c.prime )
+                      , c.prime
+                      );
+      l_rv.z := mulmod( l_h, mulmod( p1.z, p2.z, c.prime ), c.prime );
+    end if;
+    return l_rv;
+  end;
+  --
+  function multiply_jpoint( p tp_ec_point, m tp_mag, c tp_ec_curve )
+  return tp_ec_point
+  is
+    l_rv tp_ec_point;
+  begin
+    if p.y(0) = 0 and p.y.count = 1
+    then -- infinity
+      l_rv.x := c_mag_0;
+      l_rv.y := c_mag_0;
+      l_rv.z := c_mag_0;
+    elsif m(0) = 1 and m.count = 1
+    then
+      l_rv := p;
+    elsif r_greater_equal( m, c.group_order )
+    then
+      l_rv := multiply_jpoint( p, xmod( m, c.group_order ), c );
+    elsif bitand( m(0), 1 ) = 0
+    then
+      l_rv := double_jpoint( multiply_jpoint( p, rdiv2( m ), c ), c );
+    else
+      l_rv := add_jpoint( double_jpoint( multiply_jpoint( p, rdiv2( m ), c ), c ), p, c );
+    end if;
+    return l_rv;
+  end;
+  --
+  function add_point( pa tp_ec_point, pb tp_ec_point, pc tp_ec_curve )
+  return tp_ec_point
+  is
+  begin
+    return from_jacobian( add_jpoint( to_jacobian( pa ), to_jacobian( pb ), pc ), pc );
+  end;
+  --
+  function multiply_point( pa tp_ec_point, pm tp_mag, pc tp_ec_curve )
+  return tp_ec_point
+  is
+  begin
+    return from_jacobian( multiply_jpoint( to_jacobian( pa ), pm, pc ), pc );
+  end;
+  --  
+  procedure ed_group_element( p_bytes raw, p_curve tp_ed_curve, p_ge out tp_ed_point )
+  is
+    l_y tp_mag;
+    l_yy tp_mag;
+    l_u tp_mag;
+    l_v tp_mag;
+    l_v3 tp_mag;
+    l_x tp_mag;
+    l_vxx tp_mag;
+  begin
+    l_y := mag( utl_raw.bit_and( utl_raw.reverse( p_bytes ), '7F' ) );
+    l_yy := mulmod( l_y, l_y, p_curve.q );
+    l_u := nsub( l_yy, 1 );
+    l_v := addmod( mulmod( l_yy, p_curve.d, p_curve.q ), c_mag_1, p_curve.q );
+    l_v3 := mulmod( l_v, rmul( l_v, l_v ), p_curve.q );
+    l_x := mulmod( rmul( l_u, l_v ), rmul( l_v3, l_v3 ), p_curve.q );
+    l_x := powmod( l_x, rdiv2( rdiv2( rdiv2( nsub( p_curve.q, 5 ) ) ) ), p_curve.q );
+    l_x := mulmod( l_v3, rmul( l_x, l_u ), p_curve.q );
+    l_vxx := mulmod( l_v, rmul( l_x, l_x ), p_curve.q );
+    if not requal( l_vxx, l_u )
+    then
+      if requal( radd( l_vxx, l_u ), p_curve.q )
+      then
+        l_x := mulmod( l_x, p_curve.i, p_curve.q );
+      else
+        raise value_error;
+      end if;
+    end if;
+    if bitand( l_x(0), 1 ) != standard.sign( utl_raw.compare( utl_raw.bit_and( utl_raw.substr( p_bytes, -1 ), '80' ), null ) )
+    then
+      l_x := submod( p_curve.q, l_x, p_curve.q );
+    end if;
+    p_ge.x := l_x;
+    p_ge.y := l_y;
+    p_ge.z := c_mag_1;
+    p_ge.t := mulmod( l_x, l_y, p_curve.q );
+  end;
+  --
+  function ed_add( p_a tp_ed_point, p_b tp_ed_point, p_curve tp_ed_curve )
+  return tp_ed_point
+  is
+    l_ypx tp_mag;
+    l_ymx tp_mag;
+    l_a tp_mag;
+    l_b tp_mag;
+    l_c tp_mag;
+    l_d tp_mag;
+    l_zz tp_mag;
+    l_rv tp_ed_point;
+    l_xn tp_mag;
+    l_yn tp_mag;
+    l_zn tp_mag;
+    l_tn tp_mag;
+  begin
+    l_ypx := addmod( p_a.y, p_a.x, p_curve.q );
+    l_ymx := submod( p_a.y, p_a.x, p_curve.q );
+    l_a := mulmod( l_ypx, addmod( p_b.y, p_b.x, p_curve.q ), p_curve.q );
+    l_b := mulmod( l_ymx, submod( p_b.y, p_b.x, p_curve.q ), p_curve.q );
+    l_c := mulmod( p_a.t, rmul( p_b.t, nmul( p_curve.d, 2 ) ), p_curve.q );
+    l_zz := mulmod( p_a.z, p_b.z, p_curve.q );
+    l_d := addmod( l_zz, l_zz, p_curve.q );
+    l_xn := submod( l_a, l_b, p_curve.q );
+    l_yn := addmod( l_a, l_b, p_curve.q );
+    l_zn := addmod( l_d, l_c, p_curve.q );
+    l_tn := submod( l_d, l_c, p_curve.q );
+    l_rv.x := mulmod( l_xn, l_tn, p_curve.q );
+    l_rv.y := mulmod( l_yn, l_zn, p_curve.q );
+    l_rv.z := mulmod( l_zn, l_tn, p_curve.q );
+    l_rv.t := mulmod( l_xn, l_yn, p_curve.q );
+    return l_rv;
+  end;
+  --
+  function dbl( p_ge tp_ed_point, p_curve tp_ed_curve )
+  return tp_ed_point
+  is
+    l_xx tp_mag;
+    l_yy tp_mag;
+    l_b tp_mag;
+    l_a tp_mag;
+    l_aa tp_mag;
+    l_rv tp_ed_point;
+    l_yn tp_mag;
+    l_zn tp_mag;
+    l_tn tp_mag;
+  begin
+    l_xx := mulmod( p_ge.x, p_ge.x, p_curve.q );
+    l_yy := mulmod( p_ge.y, p_ge.y, p_curve.q );
+    l_b := mulmod( p_ge.z, p_ge.z, p_curve.q );
+    l_b := addmod( l_b, l_b, p_curve.q );
+    l_a := addmod( p_ge.x, p_ge.y, p_curve.q );
+    l_aa := mulmod( l_a, l_a, p_curve.q );
+    l_yn := addmod( l_yy, l_xx, p_curve.q );
+    l_zn := submod( l_yy, l_xx, p_curve.q );
+    l_tn := submod( l_b, l_zn, p_curve.q );
+    l_rv.x := mulmod( submod( l_aa, l_yn, p_curve.q ), l_tn, p_curve.q );
+    l_rv.y := mulmod( l_yn, l_zn, p_curve.q );
+    l_rv.z := mulmod( l_zn, l_tn, p_curve.q );
+    l_rv.t := mulmod( submod( l_aa, l_yn, p_curve.q ), l_yn, p_curve.q );
+    return l_rv;
+  end;
+  --
+  function ed_scalarmultiply( p_ge tp_ed_point, p_curve tp_ed_curve, p_e tp_mag )
+  return tp_ed_point
+  is
+    l_rv tp_ed_point;
+  begin
+    if p_e.count = 1 and p_e( 0 ) = 0
+    then
+      l_rv.x := c_mag_0;
+      l_rv.y := c_mag_1;
+      l_rv.z := c_mag_1;
+      l_rv.t := c_mag_0;
+    else
+      l_rv := dbl( ed_scalarmultiply( p_ge, p_curve, rdiv2( p_e ) ), p_curve );
+      if bitand( p_e( 0 ), 1 ) = 1
+      then
+        l_rv := ed_add( l_rv, p_ge, p_curve );
+      end if;
+    end if;
+    return l_rv;
+  end;
+  --
+  function ed_point2bytes( p_x tp_ed_point, p_curve tp_ed_curve )
+  return varchar2
+  is
+    l_inv tp_mag;
+    l_y tp_mag;
+    l_rv varchar2(3999);
+  begin
+    l_inv := powmod( p_x.z, nsub( p_curve.q, 2 ), p_curve.q );
+    l_y := mulmod( p_x.y, l_inv, p_curve.q );
+    l_rv := substr( lpad( demag( l_y ), p_curve.nlen * 2, '0' ), - p_curve.nlen * 2 );
+    if bitand( mulmod( p_x.x, l_inv, p_curve.q )(0), 1 ) = 1
+    then
+      l_rv := utl_raw.bit_or( '80', l_rv );
+    end if;
+    return l_rv;
+  end;
+  --
+  function negate_ed_point( p_ge raw, p_curve tp_ed_curve )
+  return tp_ed_point
+  is
+    l_ge tp_ed_point;
+    l_rv tp_ed_point;
+  begin
+    ed_group_element( p_ge, p_curve, l_ge );
+    l_rv.x := submod( c_mag_0, small_nmulmod( l_ge.x, 4, p_curve.q ), p_curve.q );
+    l_rv.y := small_nmulmod( l_ge.y, 4, p_curve.q );
+    l_rv.z := c_mag_4;
+    l_rv.t := submod( c_mag_0, small_nmulmod( mulmod( l_ge.x, l_ge.y, p_curve.q ), 4, p_curve.q ), p_curve.q );
+    return l_rv;
   end;
   --
   function strip_header_and_footer( p_key raw )
@@ -940,6 +1592,178 @@ is
     -- process PKCS#1
     p_key_parameters(1) := get_integer( p_key, l_ind ); -- n modulus
     p_key_parameters(2) := get_integer( p_key, l_ind ); -- e public
+    return true;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end;
+  --
+  function parse_DER_EC_PRIV_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_ind pls_integer;
+    l_len pls_integer;
+	l_version raw(3999);
+	l_oid raw(3999);
+  begin
+    p_key_parameters.delete;
+    check_starting_sequence( p_key, l_ind );
+	l_version := get_integer( p_key, l_ind );
+	if utl_raw.substr( p_key, l_ind, 1 ) = c_SEQUENCE
+	then -- PKCS#8
+      l_len := get_len( p_key, l_ind );
+      if get_oid( p_key, l_ind ) != '2A8648CE3D0201' -- 1.2.840.10045.2.1 ecPublicKey (ANSI X9.62 public key type)
+      then
+        raise value_error;
+      end if;
+	  l_oid := get_oid( p_key, l_ind );
+      if utl_raw.substr( p_key, l_ind, 1 ) != c_OCTECT
+      then
+        raise value_error;
+      end if;
+      l_len := get_len( p_key, l_ind );
+      if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
+      then
+        raise value_error;
+      end if;
+      l_len := get_len( p_key, l_ind );
+      if get_integer( p_key, l_ind ) != '01'
+      then
+        raise value_error;
+      end if;
+      p_key_parameters(2) := get_octect( p_key, l_ind );
+	elsif utl_raw.substr( p_key, l_ind, 1 ) = c_OCTECT
+	then -- PKCS#1
+      p_key_parameters(2) := get_octect( p_key, l_ind );
+	  l_oid := get_oid( p_key, l_ind );
+	else
+	  raise value_error;
+	end if;
+	case l_oid
+      when '2A8648CE3D030107' -- 1.2.840.10045.3.1.7 prime256v1 (ANSI X9.62 named elliptic curve)
+        then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+      when '2B81040022'       -- 1.3.132.0.34 secp384r1 (SECG (Certicom) named elliptic curve)
+        then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+      when '2B81040023'       -- 1.3.132.0.35 secp521r1 (SECG (Certicom) named elliptic curve)
+      then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+    else
+      raise value_error;
+    end case;
+    return true;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end;
+  --
+  function parse_DER_EC_PUB_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_ind pls_integer;
+    l_len pls_integer;
+  begin
+    p_key_parameters.delete;
+	-- https://crypto.stackexchange.com/questions/31882/can-i-shorten-the-large-ecdsa-public-key-output-file-from-openssl?rq=1
+    check_starting_sequence( p_key, l_ind );
+    if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
+    then
+      raise value_error;
+    end if;
+    l_len := get_len( p_key, l_ind );
+    if get_oid( p_key, l_ind ) != '2A8648CE3D0201' -- 1.2.840.10045.2.1 ecPublicKey (ANSI X9.62 public key type)
+    then
+      raise value_error;
+    end if;
+    case get_oid( p_key, l_ind )
+      when '2A8648CE3D030107' -- 1.2.840.10045.3.1.7 prime256v1 (ANSI X9.62 named elliptic curve)
+        then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+      when '2B81040022'       -- 1.3.132.0.34 secp384r1 (SECG (Certicom) named elliptic curve)
+        then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+      when '2B81040023'       -- 1.3.132.0.35 secp521r1 (SECG (Certicom) named elliptic curve)
+        then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+      else
+        raise value_error;
+    end case;
+    p_key_parameters(2) := get_bit_string( p_key, l_ind );
+    return true;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end;
+  --
+  --
+  function parse_DER_EdDSA_priv_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_ind pls_integer;
+    l_len pls_integer;
+	l_version raw(3999);
+	l_oid raw(3999);
+  begin
+    p_key_parameters.delete;
+    check_starting_sequence( p_key, l_ind );
+	l_version := get_integer( p_key, l_ind );
+	if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
+    then
+      raise value_error;
+    end if;
+    l_len := get_len( p_key, l_ind );
+ 	l_oid := get_oid( p_key, l_ind );
+    if utl_raw.substr( p_key, l_ind, 1 ) != c_OCTECT
+    then
+      raise value_error;
+    end if;
+    l_len := get_len( p_key, l_ind );
+    if l_oid = '2B6570' -- 1.3.101.112 curveEd25519 (EdDSA 25519 signature algorithm)
+    then
+      p_key_parameters(1) := utl_raw.cast_to_raw( 'ed25519' );
+      p_key_parameters(2) := get_octect( p_key, l_ind );
+    else
+      raise value_error;
+    end if;
+    return true;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end;
+  --
+  function parse_DER_EdDSA_PUB_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_ind pls_integer;
+    l_len pls_integer;
+    l_oid raw(3999);
+  begin
+    p_key_parameters.delete;
+    check_starting_sequence( p_key, l_ind );
+    if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
+    then
+      raise value_error;
+    end if;
+    l_len := get_len( p_key, l_ind );
+    l_oid := get_oid( p_key, l_ind );
+    if l_oid = '2B6570' -- 1.3.101.112 curveEd25519 (EdDSA 25519 signature algorithm)
+    then
+      p_key_parameters(1) := utl_raw.cast_to_raw( 'ed25519' );
+      p_key_parameters(2) := get_bit_string( p_key, l_ind );
+    else
+      raise value_error;
+    end if;
     return true;
   exception when value_error
     then
@@ -3359,11 +4183,11 @@ $END
     return utl_raw.substr( l_rv, l_idx + 1 );
   end;
   --
-  function sign( src raw
-               , prv_key raw
-               , pubkey_alg binary_integer
-               , sign_alg binary_integer
-               )
+  function sign_rsa( src raw
+                   , prv_key raw
+                   , pubkey_alg binary_integer
+                   , sign_alg binary_integer
+                   )
   return raw
   is
     l_sz pls_integer;
@@ -3373,31 +4197,16 @@ $END
     l_msg tp_mag;
     l_key_parameters tp_key_parameters;
   begin
-    if src is null
-    then
-      raise_application_error( -20010, 'No input buffer provided.' );
-    elsif prv_key is null
-    then
-      raise_application_error( -20011, 'no key provided' );
-    elsif pubkey_alg is null
-    then
-      raise_application_error( -20012, 'PL/SQL function returned an error.' );
-    elsif pubkey_alg != KEY_TYPE_RSA
-    then
-      raise_application_error( -20013, 'invalid cipher type passed' );
-    elsif sign_alg is null
-    then
-      raise_application_error( -20014, 'PL/SQL function returned an error.' );
-    elsif sign_alg not in ( SIGN_SHA224_RSA
-                          , SIGN_SHA256_RSA
-                          , SIGN_SHA256_RSA_X931
-                          , SIGN_SHA384_RSA
-                          , SIGN_SHA384_RSA_X931
-                          , SIGN_SHA512_RSA
-                          , SIGN_SHA512_RSA_X931
-                          , SIGN_SHA1_RSA
-                          , SIGN_SHA1_RSA_X931
-                          )
+    if sign_alg not in ( SIGN_SHA224_RSA
+                       , SIGN_SHA256_RSA
+                       , SIGN_SHA256_RSA_X931
+                       , SIGN_SHA384_RSA
+                       , SIGN_SHA384_RSA_X931
+                       , SIGN_SHA512_RSA
+                       , SIGN_SHA512_RSA_X931
+                       , SIGN_SHA1_RSA
+                       , SIGN_SHA1_RSA_X931
+                       )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
     elsif not parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
@@ -3458,12 +4267,215 @@ $END
     return demag( powmod( l_msg, mag( l_key_parameters(3) ), l_mod ) );
   end;
   --
-  function verify( src raw
-                 , sign raw
-                 , pub_key raw
-                 , pubkey_alg binary_integer
-                 , sign_alg binary_integer
-                 )
+  function sign_ec( src raw
+                  , prv_key raw
+                  , pubkey_alg binary_integer
+                  , sign_alg binary_integer
+                  )
+  return raw
+  is
+    l_hash_type pls_integer;
+    l_curve tp_ec_curve;
+    l_xxx tp_mag;
+    l_inv tp_mag;
+    l_r tp_mag;
+    l_s tp_mag;
+    l_pb tp_ec_point;
+    l_rv raw(3999);
+    l_len pls_integer;
+    l_key_parameters tp_key_parameters;
+    --
+    function mag2asn1( p_x tp_mag )
+    return raw
+    is
+      l_tmp raw(3999);
+    begin
+      l_tmp := demag( p_x );
+      if utl_raw.bit_and( utl_raw.substr( l_tmp, 1, 1 ), '80' ) = '80'
+      then
+        l_tmp := utl_raw.concat( '00', l_tmp );
+      end if;
+      return utl_raw.concat( c_INTEGER
+                           , to_char( utl_raw.length( l_tmp ), 'fm0X' )
+                           , l_tmp
+                           );
+    end;
+  begin
+    if sign_alg not in ( SIGN_SHA256withECDSA
+                       , SIGN_SHA384withECDSA
+                       , SIGN_SHA512withECDSA
+                       , SIGN_SHA256withECDSAinP1363
+                       , SIGN_SHA384withECDSAinP1363
+                       , SIGN_SHA512withECDSAinP1363
+                       )
+    then
+      raise_application_error( -20015, 'invalid cipher type passed' );
+    elsif not parse_DER_EC_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+    then
+      raise_application_error( -20016, 'PL/SQL function returned an error.' );
+    end if;
+    get_named_curve( utl_raw.cast_to_varchar2( l_key_parameters(1) ), l_curve );
+    l_hash_type := case sign_alg
+                     when SIGN_SHA256withECDSA then HASH_SH256
+                     when SIGN_SHA384withECDSA then HASH_SH384
+                     when SIGN_SHA512withECDSA then HASH_SH512
+                     when SIGN_SHA256withECDSAinP1363 then HASH_SH256
+                     when SIGN_SHA384withECDSAinP1363 then HASH_SH384
+                     when SIGN_SHA512withECDSAinP1363 then HASH_SH512
+                   end;
+    l_xxx := xmod( mag( randombytes( l_curve.nlen ) ), l_curve.group_order );
+    l_pb  := multiply_point( l_curve.generator, l_xxx, l_curve );
+    l_r := xmod( l_pb.x, l_curve.group_order );
+    l_inv := powmod( l_xxx, nsub( l_curve.group_order, 2 ), l_curve.group_order );
+    l_s := mulmod( radd( mag( hash( src, l_hash_type ) )
+                       , mulmod( mag( l_key_parameters(2) )
+                               , l_r
+                               , l_curve.group_order
+                               )
+                       )
+                 , l_inv
+                 , l_curve.group_order
+                 );
+    if sign_alg in ( SIGN_SHA256withECDSA
+                   , SIGN_SHA384withECDSA
+                   , SIGN_SHA512withECDSA
+                   )
+    then
+      l_rv := utl_raw.concat( mag2asn1( l_r )
+                            , mag2asn1( l_s )
+                            );
+      l_len := utl_raw.length( l_rv );                          
+      if l_len < 128
+      then
+        l_rv := utl_raw.concat( '30' || to_char( l_len, 'fm0X' )
+                              , l_rv
+                              );
+      else 
+        l_rv := utl_raw.concat( '3081' || to_char( l_len, 'fm0X' )
+                              , l_rv
+                              );
+      end if;
+    else
+      l_rv := utl_raw.concat( lpad( demag( l_r ), 2 * l_curve.nlen, '0' )
+                            , lpad( demag( l_s ), 2 * l_curve.nlen, '0' )
+                            );
+    end if;
+    return l_rv;
+  end;
+  --
+  function sign_eddsa( src raw
+                     , prv_key raw
+                     , pubkey_alg binary_integer
+                     , sign_alg binary_integer
+                     )
+  return raw
+  is
+    l_hash_type pls_integer;
+    l_curve tp_ed_curve;
+    l_pkh raw(3999);
+    l_a raw(3999);
+    l_h raw(3999);
+    l_r raw(3999);
+    l_s raw(3999);
+    l_rb raw(3999);
+    l_ge tp_ed_point;
+    l_hm tp_mag;
+    l_inv tp_mag;
+    l_rbytes tp_mag;
+    l_key_parameters tp_key_parameters;
+  begin
+    if sign_alg not in ( SIGN_Ed25519 )
+    then
+      raise_application_error( -20016, 'invalid cipher type passed' );
+    elsif not parse_DER_EDDSA_priv_key( base64_decode( prv_key ), l_key_parameters )
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    -- https://datatracker.ietf.org/doc/html/draft-josefsson-eddsa-ed25519-02#section-5.6
+    get_named_ed_curve( utl_raw.cast_to_varchar2( l_key_parameters(1) ), l_curve );
+    l_hash_type := HASH_SH512;
+    l_pkh := hash( utl_raw.substr( l_key_parameters(2), 1, l_curve.nlen ), l_hash_type );
+    l_pkh := utl_raw.bit_and( utl_raw.concat( 'F8', utl_raw.copies( 'FF', l_curve.nlen - 2 ), '3F' ), l_pkh );
+    l_pkh := utl_raw.bit_or( utl_raw.concat( utl_raw.copies( '00', l_curve.nlen - 1 ), '40' ), l_pkh );
+    l_r := hash( utl_raw.concat( utl_raw.substr( l_pkh, - l_curve.nlen ), src ), l_hash_type );
+    l_r := demag( xmod( mag( utl_raw.reverse( l_r ) ), l_curve.l ) );
+    l_ge := ed_scalarmultiply( l_curve.b, l_curve, mag( l_r ) );
+    l_inv := powmod( l_ge.z, nsub( l_curve.q, 2 ), l_curve.q );
+    l_rbytes := mulmod( l_ge.y, l_inv, l_curve.q );
+    l_rb := substr( lpad( demag( l_rbytes ), l_curve.nlen * 2, '0' ), - l_curve.nlen * 2 );
+    if bitand( mulmod( l_ge.x, l_inv, l_curve.q )(0), 1 ) = 1 then
+        l_rb := utl_raw.bit_or( '80', l_rb );
+    end if;
+    l_rb := utl_raw.reverse( l_rb );
+    l_a := utl_raw.substr( dbms_crypto.hash( l_key_parameters(2), HASH_SH512 ), 1, l_curve.nlen );
+    l_a := utl_raw.bit_and( utl_raw.concat( 'F8', utl_raw.copies( 'FF', l_curve.nlen - 2 ), '3F' ), l_a );
+    l_a := utl_raw.bit_or( utl_raw.concat( utl_raw.copies( '00', l_curve.nlen - 1 ), '40' ), l_a );
+    l_a := utl_raw.reverse( l_a );
+    l_h := hash( utl_raw.concat( l_rb
+                               , utl_raw.reverse( ed_point2bytes( ed_scalarmultiply( l_curve.b, l_curve, mag( l_a ) ), l_curve ) )
+                               , src
+                               )
+               , l_hash_type
+               );
+    l_hm := xmod( mag( utl_raw.reverse( l_h ) ), l_curve.l );
+    l_s := demag( addmod( mulmod( l_hm
+                                , mag( utl_raw.reverse( utl_raw.substr( l_pkh, 1, l_curve.nlen ) ) )
+                                , l_curve.l
+                                )
+                        , mag( l_r )
+                        , l_curve.l
+                        )
+                );
+    l_s := substr( lpad( l_s, l_curve.nlen * 2, '0' ), - l_curve.nlen * 2 );
+    return utl_raw.concat( l_rb, utl_raw.reverse( l_s ) );
+  end;
+  --
+  function sign( src raw
+               , prv_key raw
+               , pubkey_alg binary_integer
+               , sign_alg binary_integer
+               )
+  return raw
+  is
+    l_sz pls_integer;
+    l_tmp raw(3999);
+    l_min tp_mag;
+    l_mod tp_mag;
+    l_msg tp_mag;
+    l_key_parameters tp_key_parameters;
+  begin
+    if src is null
+    then
+      raise_application_error( -20010, 'No input buffer provided.' );
+    elsif prv_key is null
+    then
+      raise_application_error( -20011, 'no key provided' );
+    elsif pubkey_alg is null
+    then
+      raise_application_error( -20012, 'PL/SQL function returned an error.' );
+    elsif pubkey_alg not in ( KEY_TYPE_RSA, KEY_TYPE_EC, KEY_TYPE_EdDSA )
+    then
+      raise_application_error( -20013, 'invalid cipher type passed' );
+    elsif sign_alg is null
+    then
+      raise_application_error( -20014, 'PL/SQL function returned an error.' );
+    end if;
+    return case pubkey_alg
+             when KEY_TYPE_RSA then
+               sign_rsa( src, prv_key, pubkey_alg, sign_alg )
+             when KEY_TYPE_EC then
+               sign_ec( src, prv_key, pubkey_alg, sign_alg )
+             when KEY_TYPE_EdDSA then
+               sign_eddsa( src, prv_key, pubkey_alg, sign_alg )
+           end;
+  end;
+  --
+  function verify_rsa( src raw
+                     , sign raw
+                     , pub_key raw
+                     , pubkey_alg binary_integer
+                     , sign_alg binary_integer
+                     )
   return boolean
   is
     l_mod tp_mag;
@@ -3476,34 +4488,20 @@ $END
     l_trailer raw(2);
     l_rv boolean;
   begin
-    if src is null
+    if pubkey_alg != KEY_TYPE_RSA
     then
-      raise_application_error( -20010, 'No input buffer provided.' );
-    elsif sign is null
-    then
-      raise_application_error( -20011, 'invalid encryption/decryption/signature state passed' );
-    elsif pub_key is null
-    then
-      raise_application_error( -20012, 'no key provided' );
-    elsif pubkey_alg is null
-    then
-      raise_application_error( -20013, 'PL/SQL function returned an error.' );
-    elsif pubkey_alg != KEY_TYPE_RSA
-    then
-      raise_application_error( -20014, 'invalid cipher type passed' );
-    elsif sign_alg is null
-    then
-      raise_application_error( -20015, 'PL/SQL function returned an error.' );
-    elsif sign_alg not in ( SIGN_SHA224_RSA
-                          , SIGN_SHA256_RSA
-                          , SIGN_SHA256_RSA_X931
-                          , SIGN_SHA384_RSA
-                          , SIGN_SHA384_RSA_X931
-                          , SIGN_SHA512_RSA
-                          , SIGN_SHA512_RSA_X931
-                          , SIGN_SHA1_RSA
-                          , SIGN_SHA1_RSA_X931
-                          )
+      return false;
+    end if;
+    if sign_alg not in ( SIGN_SHA224_RSA
+                       , SIGN_SHA256_RSA
+                       , SIGN_SHA256_RSA_X931
+                       , SIGN_SHA384_RSA
+                       , SIGN_SHA384_RSA_X931
+                       , SIGN_SHA512_RSA
+                       , SIGN_SHA512_RSA_X931
+                       , SIGN_SHA1_RSA
+                       , SIGN_SHA1_RSA_X931
+                       )
     then
       raise_application_error( -20016, 'invalid cipher type passed' );
     elsif not parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
@@ -3602,6 +4600,168 @@ $END
       l_rv := l_rv and l_idx > 10 and utl_raw.substr( l_decr, l_idx + 1 ) = hash( src, l_hash_type );
     end if;
     return l_rv;
+  end;
+  --
+  function verify_ec( src raw
+                    , sign raw
+                    , pub_key raw
+                    , pubkey_alg binary_integer
+                    , sign_alg binary_integer
+                    )
+  return boolean
+  is
+    l_hash_type pls_integer;
+    l_curve tp_ec_curve;
+    l_inv tp_mag;
+    l_u1 tp_mag;
+    l_u2 tp_mag;
+    l_r raw(32767);
+    l_s raw(32767);
+    l_w tp_ec_point;
+    l_verify tp_ec_point;
+    l_key_parameters tp_key_parameters;
+    l_ind pls_integer;
+  begin
+    if pubkey_alg != KEY_TYPE_EC
+    then
+      return false;
+    end if;
+    if sign_alg not in ( SIGN_SHA256withECDSA
+                       , SIGN_SHA384withECDSA
+                       , SIGN_SHA512withECDSA
+                       , SIGN_SHA256withECDSAinP1363
+                       , SIGN_SHA384withECDSAinP1363
+                       , SIGN_SHA512withECDSAinP1363
+                       )
+    then
+      raise_application_error( -20016, 'invalid cipher type passed' );
+    elsif not parse_DER_EC_PUB_key( base64_decode( pub_key ), l_key_parameters )
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    get_named_curve( utl_raw.cast_to_varchar2( l_key_parameters(1) ), l_curve );
+    l_hash_type := case sign_alg
+                     when SIGN_SHA256withECDSA then HASH_SH256
+                     when SIGN_SHA384withECDSA then HASH_SH384
+                     when SIGN_SHA512withECDSA then HASH_SH512
+                     when SIGN_SHA256withECDSAinP1363 then HASH_SH256
+                     when SIGN_SHA384withECDSAinP1363 then HASH_SH384
+                     when SIGN_SHA512withECDSAinP1363 then HASH_SH512
+                   end;
+    bytes_to_ec_point( l_key_parameters(2), l_curve, l_w );
+    if sign_alg in ( SIGN_SHA256withECDSA
+                   , SIGN_SHA384withECDSA
+                   , SIGN_SHA512withECDSA
+                   )
+    then   
+      check_starting_sequence( sign, l_ind );
+      l_r := get_integer( sign, l_ind );
+      l_s := get_integer( sign, l_ind );
+    else
+      l_r := utl_raw.substr( sign, 1, l_curve.nlen );
+      l_s := utl_raw.substr( sign, l_curve.nlen + 1 );
+    end if;
+    l_inv := powmod( mag( l_s ), nsub( l_curve.group_order, 2 ), l_curve.group_order );
+    l_u1 := mulmod( mag( hash( src, l_hash_type ) ), l_inv, l_curve.group_order );
+    l_u2 := mulmod( mag( l_r ), l_inv, l_curve.group_order );
+    l_verify := add_point( multiply_point( l_curve.generator, l_u1, l_curve )
+                         , multiply_point( l_w, l_u2, l_curve )
+                         , l_curve
+                         );
+    return utl_raw.compare( demag( l_verify.x ), ltrim( l_r, '0' ) ) = 0;
+  end;
+  --
+  function verify_eddsa( src raw
+                       , sign raw
+                       , pub_key raw
+                       , pubkey_alg binary_integer
+                       , sign_alg binary_integer
+                       )
+  return boolean
+  is
+    l_hash_type pls_integer;
+    l_curve tp_ed_curve;
+    l_tst tp_ed_point;
+    l_inv tp_mag;
+    l_chk tp_mag;
+    l_k   tp_mag;
+    l_tmp raw(3999);
+    l_chk_val raw(3999);
+    l_key_parameters tp_key_parameters;
+  begin
+    if pubkey_alg != KEY_TYPE_EdDSA
+    then
+      return false;
+    end if;
+    if sign_alg not in ( SIGN_Ed25519 )
+    then
+      raise_application_error( -20016, 'invalid cipher type passed' );
+    elsif not parse_DER_EDDSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
+    then
+      raise_application_error( -20017, 'PL/SQL function returned an error.' );
+    end if;
+    get_named_ed_curve( utl_raw.cast_to_varchar2( l_key_parameters(1) ), l_curve );
+    if 2 * l_curve.nlen != utl_raw.length( sign )
+    then
+      raise value_error;
+    elsif l_curve.nlen != utl_raw.length( l_key_parameters(2) )
+    then
+      raise value_error;
+    end if;
+    l_hash_type := HASH_SH512;
+    l_tmp := hash( utl_raw.concat( utl_raw.substr( sign, 1, l_curve.nlen )
+                                 , l_key_parameters(2)
+                                 , src
+                                 )
+                 , l_hash_type
+                 );
+    l_k := xmod( mag( utl_raw.reverse( l_tmp ) ), l_curve.l );
+    l_tst := ed_add( ed_scalarmultiply( l_curve.b, l_curve, mag( utl_raw.reverse( utl_raw.substr( sign, - l_curve.nlen ) ) ) )
+                   , ed_scalarmultiply( negate_ed_point( l_key_parameters(2), l_curve ), l_curve, l_k )
+                   , l_curve
+                   );
+    l_inv := powmod( l_tst.z, nsub( l_curve.q, 2 ), l_curve.q );
+    l_chk := mulmod( l_tst.y, l_inv, l_curve.q );
+    l_chk_val := substr( lpad( demag( l_chk ), l_curve.nlen * 2, '0' ), - l_curve.nlen * 2 );
+    if bitand( mulmod( l_tst.x, l_inv, l_curve.q )(0), 1 ) = 1
+    then
+      l_chk_val := utl_raw.bit_or( '80', l_chk_val );
+    end if;
+    l_chk_val := utl_raw.reverse( l_chk_val );
+    return utl_raw.compare( l_chk_val ,utl_raw.substr( sign, 1, l_curve.nlen ) ) = 0;
+  end;
+  --
+  function verify( src raw
+                 , sign raw
+                 , pub_key raw
+                 , pubkey_alg binary_integer
+                 , sign_alg binary_integer
+                 )
+  return boolean
+  is
+  begin
+    if src is null
+    then
+      raise_application_error( -20010, 'No input buffer provided.' );
+    elsif sign is null
+    then
+      raise_application_error( -20011, 'invalid encryption/decryption/signature state passed' );
+    elsif pub_key is null
+    then
+      raise_application_error( -20012, 'no key provided' );
+    elsif pubkey_alg is null
+    then
+      raise_application_error( -20013, 'PL/SQL function returned an error.' );
+    elsif pubkey_alg not in ( KEY_TYPE_RSA, KEY_TYPE_EC, KEY_TYPE_EdDSA )
+    then
+      raise_application_error( -20014, 'invalid cipher type passed' );
+    elsif sign_alg is null
+    then
+      raise_application_error( -20015, 'PL/SQL function returned an error.' );
+    end if;
+    return verify_rsa( src, sign, pub_key, pubkey_alg, sign_alg )
+        or verify_ec( src, sign, pub_key, pubkey_alg, sign_alg )
+        or verify_eddsa( src, sign, pub_key, pubkey_alg, sign_alg );
   end;
   --
 end;
