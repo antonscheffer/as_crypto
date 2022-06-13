@@ -30,4 +30,4 @@ This does include
 
 **Please note**:
 This package will soon be included in https://github.com/OraOpenSource/oos-utils
-~~All additions, changes and bugfixes only will be available at that repository.~~ The package at OraOpenSource will be an "independ" fork, I will continue to upgrade this package when needed.
+~~All additions, changes and bugfixes only will be available at that repository.~~ The package at OraOpenSource will be an "independent" fork. After several years only the hash functions are included, so I will continue to upgrade this package when needed.
