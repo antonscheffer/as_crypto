@@ -4661,6 +4661,10 @@ $END
       l_r := utl_raw.substr( sign, 1, l_curve.nlen );
       l_s := utl_raw.substr( sign, l_curve.nlen + 1 );
     end if;
+	if ltrim( rawtohex( l_r ), '0' ) is null or ltrim( rawtohex( l_s ), '0' ) is null
+	then
+	  return false;
+	end if;
     l_inv := powmod( mag( l_s ), nsub( l_curve.group_order, 2 ), l_curve.group_order );
     l_u1 := mulmod( mag( hash( src, l_hash_type ) ), l_inv, l_curve.group_order );
     l_u2 := mulmod( mag( l_r ), l_inv, l_curve.group_order );
