@@ -28,6 +28,7 @@ This does include
   - AES256
   - RC4
 
+And this package can be used to create different types of JWT, for instance RS256, ES256 or HS256.<br/>See https://github.com/antonscheffer/as_crypto/blob/master/jwt.md<br/><br/> 
 **Please note**:
 This package will soon be included in https://github.com/OraOpenSource/oos-utils
 ~~All additions, changes and bugfixes only will be available at that repository.~~ The package at OraOpenSource will be an "independent" fork. After several years only the hash functions are included, so I will continue to upgrade this package when needed.
