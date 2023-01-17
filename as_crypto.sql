@@ -27,19 +27,24 @@ SOFTWARE.
     HASH_MD4           CONSTANT PLS_INTEGER            :=     1;
     HASH_MD5           CONSTANT PLS_INTEGER            :=     2;
     HASH_SH1           CONSTANT PLS_INTEGER            :=     3;
-    HASH_SH224         CONSTANT PLS_INTEGER            :=     11;
     HASH_SH256         CONSTANT PLS_INTEGER            :=     4;
     HASH_SH384         CONSTANT PLS_INTEGER            :=     5;
     HASH_SH512         CONSTANT PLS_INTEGER            :=     6;
+    HASH_SH224         CONSTANT PLS_INTEGER            :=     11;
+    HASH_SH512_224     CONSTANT PLS_INTEGER            :=     12;
+    HASH_SH512_256     CONSTANT PLS_INTEGER            :=     13;
+    HASH_MD2           CONSTANT PLS_INTEGER            :=     14;
     HASH_RIPEMD160     CONSTANT PLS_INTEGER            :=     15;
     -- MAC Functions
-    HMAC_MD4           CONSTANT PLS_INTEGER            :=     0;
     HMAC_MD5           CONSTANT PLS_INTEGER            :=     1;
     HMAC_SH1           CONSTANT PLS_INTEGER            :=     2;
-    HMAC_SH224         CONSTANT PLS_INTEGER            :=     10;
     HMAC_SH256         CONSTANT PLS_INTEGER            :=     3;
     HMAC_SH384         CONSTANT PLS_INTEGER            :=     4;
     HMAC_SH512         CONSTANT PLS_INTEGER            :=     5;
+    HMAC_MD4           CONSTANT PLS_INTEGER            :=     10;
+    HMAC_SH224         CONSTANT PLS_INTEGER            :=     11;
+    HMAC_SH512_224     CONSTANT PLS_INTEGER            :=     12;
+    HMAC_SH512_256     CONSTANT PLS_INTEGER            :=     13;
     HMAC_RIPEMD160     CONSTANT PLS_INTEGER            :=     14;
     -- Block Cipher Algorithms
     ENCRYPT_DES        CONSTANT PLS_INTEGER            :=     1;  -- 0x0001
@@ -55,8 +60,9 @@ SOFTWARE.
     CHAIN_CFB          CONSTANT PLS_INTEGER            :=   512;  -- 0x0200
     CHAIN_ECB          CONSTANT PLS_INTEGER            :=   768;  -- 0x0300
     CHAIN_OFB          CONSTANT PLS_INTEGER            :=  1024;  -- 0x0400
-    CHAIN_OFB_REAL     CONSTANT PLS_INTEGER            :=  1280;  -- 0x0500
-    -- Block Cipher Padding Modifiers
+    CHAIN_GCM          CONSTANT PLS_INTEGER            :=  1280;  -- 0x0500
+    CHAIN_OFB_REAL     CONSTANT PLS_INTEGER            :=  2560;  -- 0x0A00
+   -- Block Cipher Padding Modifiers
     PAD_PKCS5          CONSTANT PLS_INTEGER            :=  4096;  -- 0x1000
     PAD_NONE           CONSTANT PLS_INTEGER            :=  8192;  -- 0x2000
     PAD_ZERO           CONSTANT PLS_INTEGER            := 12288;  -- 0x3000
@@ -66,28 +72,34 @@ SOFTWARE.
     -- Stream Cipher Algorithms
     ENCRYPT_RC4        CONSTANT PLS_INTEGER            :=   129;  -- 0x0081
     -- Public Key Encryption Algorithm
-    PKENCRYPT_RSA_PKCS1_OAEP constant pls_integer := 1;
+    PKENCRYPT_RSA_PKCS1_OAEP      constant pls_integer := 1;
+    PKENCRYPT_RSA_PKCS1_OAEP_SHA2 constant pls_integer := 2;
     -- Public Key Type Algorithm
-    KEY_TYPE_RSA constant pls_integer := 1;
-    KEY_TYPE_EC constant pls_integer := 2;
+    KEY_TYPE_RSA   constant pls_integer := 1;
+    KEY_TYPE_EC    constant pls_integer := 2;
     KEY_TYPE_EdDSA constant pls_integer := 3;
     -- Public Key Signature Type Algorithm
-    SIGN_SHA224_RSA      constant pls_integer   := 1; -- SHA 224 bit hash function with RSA
-    SIGN_SHA256_RSA      constant pls_integer   := 2; -- SHA 256 bit hash function with RSA
-    SIGN_SHA256_RSA_X931 constant pls_integer   := 3; -- SHA 256 bit hash function with RSA and X931 padding
-    SIGN_SHA384_RSA      constant pls_integer   := 4; -- SHA 384 bit hash function with RSA
-    SIGN_SHA384_RSA_X931 constant pls_integer   := 5; -- SHA 384 bit hash function with RSA and X931 padding
-    SIGN_SHA512_RSA      constant pls_integer   := 6; -- SHA 512 bit hash function with RSA
-    SIGN_SHA512_RSA_X931 constant pls_integer   := 7; -- SHA 512 bit hash function with RSA and X931 padding
-    SIGN_SHA1_RSA        constant pls_integer   := 8; -- SHA1 hash function with RSA
-    SIGN_SHA1_RSA_X931   constant pls_integer   := 9; -- SHA1 hash function with RSA and X931 padding
-    SIGN_SHA256withECDSA        constant pls_integer   := 10;
-    SIGN_SHA256withECDSAinP1363 constant pls_integer   := 11;
-    SIGN_SHA384withECDSA        constant pls_integer   := 12;
-    SIGN_SHA384withECDSAinP1363 constant pls_integer   := 13;
-    SIGN_SHA512withECDSA        constant pls_integer   := 14;
-    SIGN_SHA512withECDSAinP1363 constant pls_integer   := 15;
-    SIGN_Ed25519                constant pls_integer   := 16;
+    SIGN_SHA224_RSA             constant pls_integer := 1;   -- SHA 224 bit hash function with RSA
+    SIGN_SHA256_RSA             constant pls_integer := 2;   -- SHA 256 bit hash function with RSA
+    SIGN_SHA256_RSA_X931        constant pls_integer := 3;   -- SHA 256 bit hash function with RSA and X931 padding
+    SIGN_SHA384_RSA             constant pls_integer := 4;   -- SHA 384 bit hash function with RSA
+    SIGN_SHA384_RSA_X931        constant pls_integer := 5;   -- SHA 384 bit hash function with RSA and X931 padding
+    SIGN_SHA512_RSA             constant pls_integer := 6;   -- SHA 512 bit hash function with RSA
+    SIGN_SHA512_RSA_X931        constant pls_integer := 7;   -- SHA 512 bit hash function with RSA and X931 padding
+    SIGN_SHA1_RSA               constant pls_integer := 8;   -- SHA1 hash function with RSA
+    SIGN_SHA1_RSA_X931          constant pls_integer := 9;   -- SHA1 hash function with RSA and X931 padding
+    SIGN_MD2_RSA                constant pls_integer := 20;  -- MD2 hash function with RSA
+    SIGN_MD5_RSA                constant pls_integer := 21;  -- MD2 hash function with RSA
+    SIGN_SHA256withECDSA        constant pls_integer := 10;
+    SIGN_SHA256withECDSAinP1363 constant pls_integer := 11;
+    SIGN_SHA384withECDSA        constant pls_integer := 12;
+    SIGN_SHA384withECDSAinP1363 constant pls_integer := 13;
+    SIGN_SHA512withECDSA        constant pls_integer := 14;
+    SIGN_SHA512withECDSAinP1363 constant pls_integer := 15;
+    SIGN_Ed25519                constant pls_integer := 16;
+    SIGN_SHA256_RSA_PSS         constant pls_integer := 17;  -- SHA 256 bit hash function with RSASSA-PSS
+    SIGN_SHA384_RSA_PSS         constant pls_integer := 18;  -- SHA 384 bit hash function with RSASSA-PSS
+    SIGN_SHA512_RSA_PSS         constant pls_integer := 19;  -- SHA 512 bit hash function with RSASSA-PSS
 --
   function hash( src raw, typ pls_integer )
   return raw;
@@ -104,6 +116,24 @@ SOFTWARE.
   function decrypt( src raw, typ pls_integer, key raw, iv raw := null )
   return raw;
 --
+  function encrypt( src in  raw
+                  , typ in  pls_integer
+                  , key in  raw
+                  , iv  in  raw := null
+                  , aad in  raw := null
+                  , tag out raw
+                  )
+  return raw;
+  --
+  function decrypt( src in raw
+                  , typ in pls_integer
+                  , key in raw
+                  , iv  in raw := null
+                  , aad in raw := null
+                  , tag in raw
+                  )
+  return raw;
+  --
   function pkEncrypt( src raw
                     , pub_key raw
                     , pubkey_alg binary_integer
@@ -144,6 +174,8 @@ is
   c_X931_TRAILER_SH384 constant raw(2) := '36CC';
   c_X931_TRAILER_SH512 constant raw(2) := '35CC';
 --
+  c_ASN1_MD2   raw(100) := '3020300C06082A864886F70D020205000410';
+  c_ASN1_MD5   raw(100) := '3020300C06082A864886F70D020505000410';
   c_ASN1_SH1   raw(100) := '3021300906052B0E03021A05000414';
   c_ASN1_SH224 raw(100) := '302D300D06096086480165030402040500041C';
   c_ASN1_SH256 raw(100) := '3031300D060960864801650304020105000420';
@@ -285,7 +317,7 @@ is
     elsif xc < yc
     then
       return false;
-    end if; 
+    end if;
     for i in reverse 0 .. xc - 1
     loop
       exit when x(i) > y(i);
@@ -412,7 +444,6 @@ is
   is
     t number;
     c number := 0;
-    ci pls_integer;
     rv tp_mag := x;
   begin
     for i in 0 .. rv.count - 1
@@ -450,7 +481,7 @@ is
         c := trunc( t * cmi );
         m(ci) := t - c * cm;
       end loop;
-     if c > 0
+      if c > 0
       then
         m( ci + 1 ) := c;
       end if;
@@ -1230,7 +1261,7 @@ is
   begin
     return from_jacobian( multiply_jpoint( to_jacobian( pa ), pm, pc ), pc );
   end;
-  --  
+  --
   procedure ed_group_element( p_bytes raw, p_curve tp_ed_curve, p_ge out tp_ed_point )
   is
     l_y tp_mag;
@@ -1404,7 +1435,7 @@ is
   return raw
   is
   begin
-    return utl_encode.base64_decode( strip_header_and_footer( p_key ) );  
+    return utl_encode.base64_decode( strip_header_and_footer( p_key ) );
   end;
   --
   function get_len( p_key raw, p_ind in out pls_integer )
@@ -1543,11 +1574,11 @@ is
     p_key_parameters(1) := get_integer( p_key, l_ind ); -- n modulus
     p_key_parameters(2) := get_integer( p_key, l_ind ); -- e public
     p_key_parameters(3) := get_integer( p_key, l_ind ); -- d private
-    l_dummy := get_integer( p_key, l_ind ); -- p prime1
-    l_dummy := get_integer( p_key, l_ind ); -- q prime2
-    l_dummy := get_integer( p_key, l_ind ); -- d mod (p-1) exponent1
-    l_dummy := get_integer( p_key, l_ind ); -- d mod (q-1) exponent2
-    l_dummy := get_integer( p_key, l_ind ); -- (inverse of q) mod p coefficient
+    p_key_parameters(5) := get_integer( p_key, l_ind ); -- p prime1
+    p_key_parameters(6) := get_integer( p_key, l_ind ); -- q prime2
+    p_key_parameters(7) := get_integer( p_key, l_ind ); -- d mod (p-1) exponent1
+    p_key_parameters(8) := get_integer( p_key, l_ind ); -- d mod (q-1) exponent2
+    p_key_parameters(4) := get_integer( p_key, l_ind ); -- (inverse of q) mod p coefficient
     return true;
   exception when value_error
     then
@@ -1607,20 +1638,20 @@ is
   is
     l_ind pls_integer;
     l_len pls_integer;
-	l_version raw(3999);
-	l_oid raw(3999);
+    l_version raw(3999);
+    l_oid raw(3999);
   begin
     p_key_parameters.delete;
     check_starting_sequence( p_key, l_ind );
-	l_version := get_integer( p_key, l_ind );
-	if utl_raw.substr( p_key, l_ind, 1 ) = c_SEQUENCE
-	then -- PKCS#8
+    l_version := get_integer( p_key, l_ind );
+    if utl_raw.substr( p_key, l_ind, 1 ) = c_SEQUENCE
+    then -- PKCS#8
       l_len := get_len( p_key, l_ind );
       if get_oid( p_key, l_ind ) != '2A8648CE3D0201' -- 1.2.840.10045.2.1 ecPublicKey (ANSI X9.62 public key type)
       then
         raise value_error;
       end if;
-	  l_oid := get_oid( p_key, l_ind );
+      l_oid := get_oid( p_key, l_ind );
       if utl_raw.substr( p_key, l_ind, 1 ) != c_OCTECT
       then
         raise value_error;
@@ -1636,14 +1667,14 @@ is
         raise value_error;
       end if;
       p_key_parameters(2) := get_octect( p_key, l_ind );
-	elsif utl_raw.substr( p_key, l_ind, 1 ) = c_OCTECT
-	then -- PKCS#1
+    elsif utl_raw.substr( p_key, l_ind, 1 ) = c_OCTECT
+    then -- PKCS#1
       p_key_parameters(2) := get_octect( p_key, l_ind );
-	  l_oid := get_oid( p_key, l_ind );
-	else
-	  raise value_error;
-	end if;
-	case l_oid
+      l_oid := get_oid( p_key, l_ind );
+    else
+      raise value_error;
+    end if;
+    case l_oid
       when '2A8648CE3D030107' -- 1.2.840.10045.3.1.7 prime256v1 (ANSI X9.62 named elliptic curve)
         then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
       when '2B81040022'       -- 1.3.132.0.34 secp384r1 (SECG (Certicom) named elliptic curve)
@@ -1670,7 +1701,7 @@ is
     l_len pls_integer;
   begin
     p_key_parameters.delete;
-	-- https://crypto.stackexchange.com/questions/31882/can-i-shorten-the-large-ecdsa-public-key-output-file-from-openssl?rq=1
+    -- https://crypto.stackexchange.com/questions/31882/can-i-shorten-the-large-ecdsa-public-key-output-file-from-openssl?rq=1
     check_starting_sequence( p_key, l_ind );
     if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
     then
@@ -1708,18 +1739,18 @@ is
   is
     l_ind pls_integer;
     l_len pls_integer;
-	l_version raw(3999);
-	l_oid raw(3999);
+    l_version raw(3999);
+    l_oid raw(3999);
   begin
     p_key_parameters.delete;
     check_starting_sequence( p_key, l_ind );
-	l_version := get_integer( p_key, l_ind );
-	if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
+    l_version := get_integer( p_key, l_ind );
+    if utl_raw.substr( p_key, l_ind, 1 ) != c_SEQUENCE
     then
       raise value_error;
     end if;
     l_len := get_len( p_key, l_ind );
- 	l_oid := get_oid( p_key, l_ind );
+    l_oid := get_oid( p_key, l_ind );
     if utl_raw.substr( p_key, l_ind, 1 ) != c_OCTECT
     then
       raise value_error;
@@ -2070,6 +2101,103 @@ is
          || utl_raw.reverse( to_char( st(5), fmt2 ) );
 --
     return t_md;
+  end;
+--
+  function md2( p_msg raw )
+  return raw
+  is
+    m number;
+    b varchar2(32);
+    L number := 0;
+    type tp_md2 is table of pls_integer index by pls_integer;
+    C tp_md2;
+    S tp_md2;
+    X tp_md2;
+    Si varchar2(512) :=
+       '292E43C9A2D87C013D3654A1ECF0061362A705F3C0C7738C98932BD9BC4C82CA'
+    || '1E9B573CFDD4E01667426F188A17E512BE4EC4D6DA9EDE49A0FBF58EBB2FEE7A'
+    || 'A968799115B2073F94C210890B225F21807F5D9A5A903227353ECCE7BFF79703'
+    || 'FF1930B348A5B5D1D75E922AAC56AAC64FB838D296A47DB676FC6BE29C7404F1'
+    || '459D705964718720865BCF65E62DA8021B6025ADAEB0B9F61C46616934407E0F'
+    || '5547A323DD51AF3AC35CF9CEBAC5EA262C530D6E85288409D3DFCDF441814D52'
+    || '6ADC37C86CC1ABFA24E17B080CBDB14A7888958BE363E86DE9CBD5FE3B001D39'
+    || 'F2EFB70E6658D0E4A67772F8EB754B0A314450B48FED1F1ADB998D339F118314';
+--
+    procedure checksum( p_b varchar2 )
+    is
+      t number;
+    begin
+      for i in 0 .. 15
+      loop
+        t := to_number( substr( p_b, i * 2 + 1, 2 ), 'xx' );
+        C(i) := bitxor( C(i), S( bitand( bitxor( t, L ), 255 ) ) );
+        L := C(i);
+      end loop;
+    end;
+--
+    procedure process_block( p_b varchar2 )
+    is
+      t number;
+    begin
+      for i in 0 .. 15
+      loop
+        t := to_number( substr( p_b, i * 2 + 1, 2 ), 'xx' );
+        X( i + 16 ) := t;
+        X( i + 32 ) := bitand( bitxor( t, X(i) ), 255 );
+      end loop;
+      t := 0;
+      for j in 0 .. 17
+      loop
+        for k in 0 .. 47
+        loop
+          X(k) := bitxor( X(k), S(t) );
+          t := bitand( X(k), 255 );
+        end loop;
+        t := bitand( t + j, 255 );
+      end loop;
+    end;
+  begin
+    for i in 0 .. 15
+    loop
+      C(i) := 0;
+      X(i) := 0;
+    end loop;
+    for i in 0 .. 255
+    loop
+       S(i) := to_number( substr( Si, i * 2 + 1, 2 ), 'xx' );
+    end loop;
+--
+    for i in 0 .. nvl( trunc( ( utl_raw.length( p_msg ) ) / 16 ), 0 ) - 1
+    loop
+      b := utl_raw.substr( p_msg, i * 16 + 1, 16 );
+      checksum( b );
+      process_block( b );
+    end loop;
+    m := nvl( mod( utl_raw.length( p_msg ), 16 ), 0 );
+    if m = 0
+    then
+      b := '';
+    else
+      b := utl_raw.substr( p_msg, -m );
+    end if;
+    for i in 1 .. 16 - m
+    loop
+      b := b || to_char( 16 - m, 'fm0X' );
+    end loop;
+    checksum( b );
+    process_block( b );
+    b := '';
+    for i in 0 .. 15
+    loop
+      b := b || to_char( C(i), 'fm0X' );
+    end loop;
+    process_block( b );
+    b := '';
+    for i in 0 .. 15
+    loop
+      b := b || to_char( X(i), 'fm0X' );
+    end loop;
+    return b;
   end;
 --
   function md4( p_msg raw )
@@ -2609,7 +2737,7 @@ is
     return t_md;
   end;
 --
-  function sha512( p_msg raw, p_512 boolean )
+  function sha512( p_msg raw, p_h_str varchar2 )
   return raw
   is
     t_md varchar2(128);
@@ -2626,7 +2754,6 @@ is
     Ht tp_tab;
     K tp_tab;
     w tp_tab;
-    H_str varchar2(128);
     K_str varchar2(1280);
     a number;
     b number;
@@ -2651,20 +2778,11 @@ is
       t_pad_len := 128 + t_pad_len;
     end if;
     t_pad := rpad( '8', t_pad_len * 2 - 16, '0' ) || to_char( t_len * 8, 'fm0XXXXXXX' );
---
-    if p_512
-    then
-      H_str := '6a09e667f3bcc908bb67ae8584caa73b3c6ef372fe94f82ba54ff53a5f1d36f1'
-            || '510e527fade682d19b05688c2b3e6c1f1f83d9abfb41bd6b5be0cd19137e2179';
-    else
-      H_str := 'cbbb9d5dc1059ed8629a292a367cd5079159015a3070dd17152fecd8f70e5939'
-            || '67332667ffc00b318eb44a8768581511db0c2e0d64f98fa747b5481dbefa4fa4';
-    end if;
     Ht := tp_tab();
     Ht.extend(8);
     for i in 1 .. 8
     loop
-      Ht(i) := to_number( substr( H_str, i * 16 - 15, 16 ), fmt1 );
+      Ht(i) := to_number( substr( p_h_str, i * 16 - 15, 16 ), fmt1 );
     end loop;
 --
     K_str := '428a2f98d728ae227137449123ef65cdb5c0fbcfec4d3b2fe9b5dba58189dbbc'
@@ -2774,7 +2892,7 @@ is
 --
       end loop;
     end loop;
-    for i in 1 .. case when p_512 then 8 else 6 end
+    for i in 1 .. 8
     loop
       t_md := t_md || to_char( Ht(i), fmt2 );
     end loop;
@@ -2791,9 +2909,27 @@ is
              when HASH_SH1 then sha1( src )
              when HASH_SH224 then sha256( src, false )
              when HASH_SH256 then sha256( src, true )
-             when HASH_SH384 then sha512( src, false )
-             when HASH_SH512 then sha512( src, true )
+             when HASH_SH384 then utl_raw.substr( sha512( src
+                                                        ,  'cbbb9d5dc1059ed8629a292a367cd5079159015a3070dd17152fecd8f70e5939'
+                                                        || '67332667ffc00b318eb44a8768581511db0c2e0d64f98fa747b5481dbefa4fa4'
+                                                        )
+                                                , 1, 48 )
+             when HASH_SH512 then sha512( src
+                                        ,  '6a09e667f3bcc908bb67ae8584caa73b3c6ef372fe94f82ba54ff53a5f1d36f1'
+                                        || '510e527fade682d19b05688c2b3e6c1f1f83d9abfb41bd6b5be0cd19137e2179'
+                                        )
+             when HASH_SH512_256 then utl_raw.substr( sha512( src
+                                                        ,  '22312194FC2BF72C9F555FA3C84C64C22393B86B6F53B151963877195940EABD'
+                                                        || '96283EE2A88EFFE3BE5E1E25538639922B0199FC2C85B8AA0EB72DDC81C52CA2'
+                                                        )
+                                                , 1, 32 )
+             when HASH_SH512_224 then utl_raw.substr( sha512( src
+                                                            ,  '8C3D37C819544DA273E1996689DCD4D61DFAB7AE32FF9C82679DD514582F9FCF'
+                                                            || '0F6D2B697BD44DA877E36F7304C489423F9D85A86A1D36C81112E6AD91D692A1'
+                                                            )
+                                                    , 1, 28 )
              when HASH_RIPEMD160 then ripemd160( src )
+             when HASH_MD2 then md2( src )
            end;
   end;
 --
@@ -2803,7 +2939,7 @@ is
     t_key raw(128);
     t_len pls_integer;
     t_blocksize pls_integer := case
-                                 when typ in ( HMAC_SH384, HMAC_SH512 )
+                                 when typ in ( HMAC_SH384, HMAC_SH512, HMAC_SH512_256, HMAC_SH512_224 )
                                    then 128
                                    else 64
                                end;
@@ -2815,6 +2951,8 @@ is
                            when HMAC_SH256     then HASH_SH256
                            when HMAC_SH384     then HASH_SH384
                            when HMAC_SH512     then HASH_SH512
+                           when HMAC_SH512_256 then HASH_SH512_256
+                           when HMAC_SH512_224 then HASH_SH512_224
                            when HMAC_RIPEMD160 then HASH_RIPEMD160
                          end;
   begin
@@ -3763,7 +3901,7 @@ is
     then
       return encrypt__rc4( src, key );
     end if;
-    case bitand( typ, 15 )
+    case bitand( typ, 15 ) -- 0x000F
       when ENCRYPT_3DES then
         deskey( utl_raw.substr( key, 1, 8 ), t_keys, true );
         deskey( utl_raw.substr( key, 9, 8 ), t_keys2, false );
@@ -3789,7 +3927,7 @@ is
       else
         null;
     end case;
-    case bitand( typ, 61440 )
+    case bitand( typ, 61440 ) -- 0xF000
       when PAD_NONE then
         t_pad := mod( utl_raw.length( src ), t_bs );
         if t_pad > 0
@@ -3841,7 +3979,7 @@ is
       t_tmp2 := null;
       for i in 0 .. trunc( length( t_tmp ) / t_bs2 ) - 1
       loop
-        case bitand( typ, 3840 )
+        case bitand( typ, 3840 ) -- 0x0F00
           when CHAIN_CBC then
             t_raw := utl_raw.bit_xor( substr( t_tmp, i * t_bs2 + 1, t_bs2 ), t_iv );
             t_raw := encr( t_raw );
@@ -3871,7 +4009,7 @@ $END
       end loop;
       t_encr := utl_raw.concat( t_encr, hextoraw( t_tmp2 ) );
     end loop;
-    case bitand( typ, 61440 )
+    case bitand( typ, 61440 ) -- 0xF000
       when PAD_NONE then
         t_encr := utl_raw.substr( t_encr, 1, utl_raw.length( src ) );
       when PAD_ORCL then
@@ -3880,7 +4018,7 @@ $END
         null;
     end case;
     return t_encr;
-  end;
+  end encrypt;
 --
   function decrypt( src raw, typ pls_integer, key raw, iv raw := null )
   return raw
@@ -3905,7 +4043,7 @@ $END
     is
       tmp raw(100);
     begin
-      case bitand( typ, 15 )
+      case bitand( typ, 15 ) -- 0x000F
         when ENCRYPT_3DES then
           tmp := des( des( des( p, t_keys3 ), t_keys2 ), t_keys );
         when ENCRYPT_DES then
@@ -3937,7 +4075,7 @@ $ELSIF DBMS_DB_VERSION.VER_LE_11 $THEN
 $ELSE
     t_fb := bitand( typ, 3840 ) in ( CHAIN_CFB, CHAIN_OFB, CHAIN_OFB_REAL );
 $END
-    case bitand( typ, 15 )
+    case bitand( typ, 15 ) -- 0x000F
       when ENCRYPT_3DES then
         deskey( utl_raw.substr( key, 1, 8 ), t_keys, t_fb );
         deskey( utl_raw.substr( key, 9, 8 ), t_keys2, not t_fb );
@@ -3980,7 +4118,7 @@ $END
       t_tmp2 := null;
       for i in 0 .. length( t_tmp ) / t_bs2 - 1
       loop
-        case bitand( typ, 3840 )
+        case bitand( typ, 3840 ) -- 0x0F00
           when CHAIN_CBC then
             t_raw := decr( substr( t_tmp, i * t_bs2 + 1, t_bs2 ) );
             t_raw := utl_raw.bit_xor( t_raw, t_iv );
@@ -4008,7 +4146,7 @@ $END
       end loop;
       t_decr := utl_raw.concat( t_decr, hextoraw( t_tmp2 ) );
     end loop;
-    case bitand( typ, 61440 )
+    case bitand( typ, 61440 ) -- 0xF000
       when PAD_PKCS5 then
         t_pad := to_number( utl_raw.substr( t_decr, -1 ), 'XX' );
         t_pad := utl_raw.length( t_decr ) - t_pad;
@@ -4043,6 +4181,248 @@ $END
         null;
     end case;
     return t_decr;
+  end decrypt;
+  --
+  function gcm_aes( p_encrypt boolean, p_src raw, p_key raw, p_iv raw, p_aad raw, p_tag out raw )
+  return raw
+  is
+    l_counter raw(3999);
+    l_encrypted raw(3999);
+    l_src_txt raw(3999);
+    l_encr_ctr raw(3999);
+    l_encr_txt raw(3999);
+    l_H raw(3999);
+    l_tag_init raw(3999);
+    l_tag_tmp raw(3999);
+    l_len pls_integer;
+    l_encr_len pls_integer;
+    l_block_size pls_integer := 16;
+    l_mode pls_integer := dbms_crypto.ENCRYPT_AES + dbms_crypto.CHAIN_CBC + dbms_crypto.PAD_ZERO;
+    type tp_ghash_precomp is table of boolean index by pls_integer;
+    l_ghash_precomp tp_ghash_precomp;
+    l_x number;                                                                                            
+--
+    function ghash( p_b varchar2 )                                                             
+    return varchar2                                                                                          
+    is                                                                                                       
+      l_v raw(16);                                                                                           
+      l_z raw(16);                                                                                           
+      l_reduce boolean;                                                                                      
+      l_v0 number;                                                                                             
+      l_v1 number;                                                                                           
+    begin
+      l_z := utl_raw.copies( '00', 16 );                                                                           
+      for i in 0 .. trunc( length( p_b ) / 32 ) - 1
+      loop
+        l_v := lpad( substr( p_b, 1 + i * 32, 32 ), 32, '0' );
+        l_v := utl_raw.bit_xor( l_v, l_z );
+        l_z := utl_raw.copies( '00', 16 );                                                                           
+        for i in 0 .. 1                                                                                        
+        loop                                                                                                   
+          for j in 0 .. 63 - i                                                                                 
+          loop                                                                                                 
+            if l_ghash_precomp( i * 64 + j )
+            then                                                                                               
+              l_z := utl_raw.bit_xor( l_z, l_v );                                                              
+            end if;                                                                                            
+            l_v0 := to_number( substr( rawtohex( l_v ), 1, 16 ), rpad( 'X', 16, 'X' ) );                       
+            l_v1 := to_number( substr( rawtohex( l_v ), -16 ), rpad( 'X', 16, 'X' ) );                         
+            l_reduce := bitand( l_v1, 1 ) > 0;                                                                 
+            l_v1 := trunc( l_v1 / 2 ) + case when bitand( l_v0, 1 ) > 0 then 9223372036854775808 else 0 end;   
+            l_v := to_char( trunc( l_v0 / 2 ), 'FM' || rpad( '0', 16, 'X' ) )                                  
+                || to_char( l_v1, 'FM' || rpad( '0', 16, 'X' ) );                                              
+            if l_reduce                                                                                        
+            then                                                                                               
+              l_v := utl_raw.bit_xor( l_v, 'E1000000000000000000000000000000' );                               
+            end if;                                                                                            
+          end loop;                                                                                            
+        end loop;                                                                                              
+        if l_ghash_precomp( 127 )
+        then                                                                                                   
+          l_z := utl_raw.bit_xor( l_z, l_v );                                                                  
+        end if;
+      end loop;
+      return l_z;                                                                                            
+    end;                                                                                                     
+  --
+  begin
+    l_H := dbms_crypto.encrypt( utl_raw.copies( '00', l_block_size ), l_mode, p_key );
+    for i in 0 .. 1                                                                                        
+    loop                                                                                                   
+      l_x := to_number( substr( lpad( l_H, 32, '0' ), 1 + i * 16, 16 ), lpad( 'X', 16, 'X' ) );            
+      for j in 0 .. 63                                                                               
+      loop
+        l_ghash_precomp( i * 64 + j ) := bitand( l_x, power( 2, 63 - j ) ) != 0;
+      end loop;
+    end loop;
+    l_len := nvl( utl_raw.length( p_iv ), 0 );
+    if l_len != 12
+    then
+      if p_iv is null
+      then
+        l_counter := utl_raw.copies( '00', 3 * l_block_size - 1  ) || '00';
+      else
+        if mod( l_len, l_block_size ) > 0
+        then
+          l_counter := utl_raw.copies( '00', l_block_size - mod( l_len, l_block_size ) );
+        end if;
+        l_counter := utl_raw.concat( p_iv
+                                   , l_counter
+                                   , utl_raw.copies( '00', 8 )
+                                   , to_char( 8 * l_len, 'fm0XXXXXXXXXXXXXXX' )
+                                   );
+      end if;
+      l_counter := ghash( l_counter );
+    else
+      l_counter := utl_raw.concat( p_iv, utl_raw.copies( '00', l_block_size - 13 ), '01' );
+    end if;
+    l_tag_init := dbms_crypto.encrypt( l_counter, l_mode, p_key );
+    l_tag_tmp := ghash( utl_raw.substr( utl_raw.concat( p_aad, utl_raw.copies( '00', l_block_size ) ), 1, l_block_size ) );
+    l_len := nvl( utl_raw.length( p_src ), 0 );
+    if not p_encrypt
+    then
+      l_len := l_len - l_block_size;
+    end if;
+    for i in 0 .. trunc( l_len / l_block_size ) - 1
+    loop
+      l_counter := utl_raw.concat( utl_raw.substr( l_counter, 1, l_block_size - 4 )
+                                 , to_char( to_number( utl_raw.substr( l_counter, - 4 ), '0XXXXXXX' ) + 1, 'fm0XXXXXXX' )
+                                 );
+      l_encr_ctr := dbms_crypto.encrypt( l_counter, l_mode, p_key );
+      l_src_txt := utl_raw.substr( p_src, 1 + i * l_block_size, l_block_size );
+      l_encr_txt := utl_raw.bit_xor( l_src_txt, l_encr_ctr );
+      if p_encrypt
+      then
+        l_tag_tmp := ghash( utl_raw.bit_xor( l_encr_txt, l_tag_tmp ) );
+      else
+        l_tag_tmp := ghash( utl_raw.bit_xor( l_src_txt, l_tag_tmp ) );
+      end if;
+      l_encrypted := utl_raw.concat( l_encrypted, l_encr_txt );
+    end loop;
+    l_encr_len := nvl( utl_raw.length( l_encrypted ), 0 );
+    if l_encr_len < l_len
+    then
+      l_counter := utl_raw.concat( utl_raw.substr( l_counter, 1, l_block_size - 4 )
+                                 , to_char( 1 + to_number( utl_raw.substr( l_counter, -4 ), '0XXXXXXX' ), 'fm0XXXXXXX' )
+                                 );
+      l_encr_ctr := dbms_crypto.encrypt( l_counter, l_mode, p_key );
+      if p_encrypt
+      then
+        l_src_txt := utl_raw.substr( p_src, l_encr_len - l_len );
+      else
+        l_src_txt := utl_raw.substr( p_src, l_encr_len - l_len - l_block_size, l_len - l_encr_len );
+      end if;
+      l_encr_txt := utl_raw.bit_xor( l_src_txt, l_encr_ctr );
+      l_encr_txt := utl_raw.substr( l_encr_txt, 1, l_len - l_encr_len );
+      if p_encrypt
+      then
+        l_tag_tmp := ghash( utl_raw.bit_xor( l_encr_txt, l_tag_tmp ) );
+      else
+        l_tag_tmp := ghash( utl_raw.bit_xor( l_src_txt, l_tag_tmp ) );
+      end if;
+      l_encrypted := utl_raw.concat( l_encrypted, l_encr_txt );
+    end if;
+    l_tag_tmp := ghash( utl_raw.bit_xor( to_char( nvl( utl_raw.length( p_aad ), 0 ) * 8, 'fm0XXXXXXXXXXXXXXX' )
+                                      || to_char( l_len * 8, 'fm0XXXXXXXXXXXXXXX' )
+                                       , l_tag_tmp
+                                       ) 
+                      );
+    l_tag_tmp := utl_raw.bit_xor( l_tag_init, l_tag_tmp );
+    if p_encrypt
+    then
+      p_tag := l_tag_tmp;
+    elsif utl_raw.substr( p_src, - l_block_size ) != l_tag_tmp
+    then
+      raise_application_error( -20039, 'Authentication Tag has is not as expected.' );
+    end if;
+    return l_encrypted;
+  end;
+  --
+  function encrypt( src in  raw
+                  , typ in  pls_integer
+                  , key in  raw
+                  , iv  in  raw := null
+                  , aad in  raw := null
+                  , tag out raw
+                  )
+  return raw
+  is
+  begin
+    if typ is null
+    then
+      raise_application_error( -20030, 'no cipher type specified' );
+    elsif bitand( typ, 61440 ) != PAD_NONE -- 0xF000
+    then
+      raise_application_error( -20031, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
+    elsif bitand( typ, 3840 ) != CHAIN_GCM -- 0x0F00
+    then
+      raise_application_error( -20032, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
+    elsif bitand( typ, 255 ) not in ( ENCRYPT_AES, ENCRYPT_AES128, ENCRYPT_AES192, ENCRYPT_AES256 )  -- 0x0FF
+    then
+      raise_application_error( -20033, 'Chaining mode GCM is only allowed for AES encryption.' );
+    elsif iv is null
+    then
+      raise_application_error( -20034, 'GCM requires a iv nonce.' );
+    end if;
+    return gcm_aes( true, src, key, iv, aad, tag );
+  end encrypt;
+  --
+  function decrypt( src in raw
+                  , typ in pls_integer
+                  , key in raw
+                  , iv  in raw := null
+                  , aad in raw := null
+                  , tag in raw
+                  )
+  return raw
+  is
+    l_dummy_tag raw(3999);
+  begin
+    if typ is null
+    then
+      raise_application_error( -20030, 'no cipher type specified' );
+    elsif bitand( typ, 61440 ) != PAD_NONE -- 0xF000
+    then
+      raise_application_error( -20031, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
+    elsif bitand( typ, 3840 ) != CHAIN_GCM -- 0x0F00
+    then
+      raise_application_error( -20032, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
+    elsif bitand( typ, 255 ) not in ( ENCRYPT_AES, ENCRYPT_AES128, ENCRYPT_AES192, ENCRYPT_AES256 )  -- 0x0FF
+    then
+      raise_application_error( -20033, 'Chaining mode GCM is only allowed for AES encryption.' );
+    elsif iv is null
+    then
+      raise_application_error( -20034, 'GCM requires a iv nonce.' );
+    end if;
+    return gcm_aes( false, utl_raw.concat( src, tag ), key, iv, aad, l_dummy_tag );
+  end decrypt;
+  --
+  function rsa_chinese_remainder( p_m tp_mag
+                                , p_key_parameters in out tp_key_parameters
+                                )
+  return raw
+  is
+    l_m1 tp_mag;
+    l_m2 tp_mag;
+    l_h tp_mag;
+    l_p tp_mag;
+    l_q tp_mag;
+  begin
+    if p_key_parameters.exists(6)
+    then
+      if not p_key_parameters.exists(8)
+      then
+        p_key_parameters(7) := demag( xmod( mag( p_key_parameters(3) ), nsub( mag( p_key_parameters(5) ), 1 ) ) );
+        p_key_parameters(8) := demag( xmod( mag( p_key_parameters(3) ), nsub( mag( p_key_parameters(6) ), 1 ) ) );
+      end if;
+      l_p := mag( p_key_parameters(5) ); -- prime1
+      l_q := mag( p_key_parameters(6) ); -- prime2
+      l_m1 := powmod( p_m, mag( p_key_parameters(7) ), l_p ); -- (7) = dp
+      l_m2 := powmod( p_m, mag( p_key_parameters(8) ), l_q ); -- (8) = dq
+      l_h := mulmod( submod(l_m1, l_m2, l_p ), mag( p_key_parameters(4) ), l_p );   -- (4) = qinv
+      return demag( addmod( l_m2, rmul( l_h, l_q ), mag( p_key_parameters(1) ) ) ); -- (1) = n
+    end if;    
+    return demag( powmod( p_m, mag( p_key_parameters(3) ), mag( p_key_parameters(1) ) ) );
   end;
   --
   function pkEncrypt( src raw
@@ -4063,6 +4443,7 @@ $END
     l_y raw(32767);
     l_em raw(32767);
     l_r raw(3999);
+    l_empty_hash raw(3999);
   begin
     if src is null
     then
@@ -4079,22 +4460,23 @@ $END
     elsif enc_alg is null
     then
       raise_application_error( -20014, 'PL/SQL function returned an error.' );
-    elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
+    elsif enc_alg not in ( PKENCRYPT_RSA_PKCS1_OAEP, PKENCRYPT_RSA_PKCS1_OAEP_SHA2 )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
     elsif not parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     end if;
-    l_hash_type := HASH_SH256;
-    l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
+    l_hash_type := case enc_alg when PKENCRYPT_RSA_PKCS1_OAEP_SHA2 then HASH_SH256 else HASH_SH256 end;
+    l_empty_hash := hash( null, l_hash_type );
+    l_k0 := utl_raw.length( l_empty_hash );
     l_k := trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8;
     l_ml := utl_raw.length( src );
     if l_ml > l_k - 2 * l_k0 - 2
     then
       raise_application_error( -20017, 'PL/SQL function returned an error.' );
     end if;
-    l_x := utl_raw.concat( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    l_x := utl_raw.concat( l_empty_hash
                          , case when l_k - 2 * l_k0 - 2 - l_ml > 0 then utl_raw.copies( '00', l_k - 2 * l_k0 - 2 - l_ml ) end
                          , '01'
                          , src
@@ -4124,6 +4506,7 @@ $END
     l_r raw(3999);
     l_idx pls_integer;
     l_key_parameters tp_key_parameters;
+    l_empty_hash raw(3999);
   begin
     if src is null
     then
@@ -4140,7 +4523,7 @@ $END
     elsif enc_alg is null
     then
       raise_application_error( -20014, 'PL/SQL function returned an error.' );
-    elsif enc_alg != PKENCRYPT_RSA_PKCS1_OAEP
+    elsif enc_alg not in ( PKENCRYPT_RSA_PKCS1_OAEP, PKENCRYPT_RSA_PKCS1_OAEP_SHA2 )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
     elsif not parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
@@ -4152,9 +4535,11 @@ $END
     then
       raise_application_error( -20017, 'PL/SQL function returned an error.' );
     end if;
-    l_hash_type := HASH_SH256;
-    l_k0 := utl_raw.length( hash( '00', l_hash_type ) );
-    l_em := demag( powmod( mag( src ), mag( l_key_parameters(3) ), mag( l_key_parameters(1) ) ) );
+    l_hash_type := case enc_alg when PKENCRYPT_RSA_PKCS1_OAEP_SHA2 then HASH_SH256 else HASH_SH256 end;
+    l_empty_hash := hash( null, l_hash_type );
+    l_k0 := utl_raw.length( l_empty_hash );
+    l_em := rsa_chinese_remainder( mag( src ), l_key_parameters );
+  --  l_em := demag( powmod( mag( src ), mag( l_key_parameters(3) ), mag( l_key_parameters(1) ) ) );
     if utl_raw.length( l_em ) < l_k
     then
       l_em := utl_raw.concat( utl_raw.copies( '00', l_k - utl_raw.length( l_em ) ), l_em );
@@ -4166,7 +4551,7 @@ $END
     l_x := utl_raw.substr( l_em, 2 + l_k0 );
     l_r := utl_raw.bit_xor( utl_raw.substr( l_em, 2, l_k0 ), mgf1( l_x, l_k0, l_hash_type ) );
     l_rv := utl_raw.bit_xor( l_x, mgf1( l_r, l_k - l_k0 - 1, l_hash_type ) );
-    if utl_raw.substr( l_rv, 1, l_k0 ) != hextoraw( 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' )
+    if utl_raw.substr( l_rv, 1, l_k0 ) != l_empty_hash
     then
       raise_application_error( -20019, 'PL/SQL function returned an error.' );
     end if;
@@ -4181,6 +4566,24 @@ $END
       end if;
     end loop;
     return utl_raw.substr( l_rv, l_idx + 1 );
+  end;
+  --
+  function get_rsa_pss_mask( p_mod raw )
+  return raw
+  is
+    l_fist_octect pls_integer;
+  begin
+    l_fist_octect := to_number( utl_raw.substr( p_mod, 1, 1 ), 'XX' );
+    return case
+             when bitand( l_fist_octect, 128 ) > 0 then '7F'
+             when bitand( l_fist_octect, 64 ) > 0 then '3F'
+             when bitand( l_fist_octect, 32 ) > 0 then '1F'
+             when bitand( l_fist_octect, 16 ) > 0 then '0F'
+             when bitand( l_fist_octect, 8 ) > 0 then '07'
+             when bitand( l_fist_octect, 4 ) > 0 then '03'
+             when bitand( l_fist_octect, 2 ) > 0 then '01'
+             else 'FF'
+           end;
   end;
   --
   function sign_rsa( src raw
@@ -4206,6 +4609,11 @@ $END
                        , SIGN_SHA512_RSA_X931
                        , SIGN_SHA1_RSA
                        , SIGN_SHA1_RSA_X931
+                       , SIGN_MD2_RSA
+                       , SIGN_MD5_RSA
+                       , SIGN_SHA256_RSA_PSS
+                       , SIGN_SHA384_RSA_PSS
+                       , SIGN_SHA512_RSA_PSS
                        )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
@@ -4226,44 +4634,98 @@ $END
     then
       if sign_alg = SIGN_SHA1_RSA_X931
       then
-        l_tmp := utl_raw.concat( hash( src, HASH_SH1 ), c_X931_TRAILER_SH1 ); 
+        l_tmp := utl_raw.concat( hash( src, HASH_SH1 ), c_X931_TRAILER_SH1 );
       elsif sign_alg = SIGN_SHA512_RSA_X931
       then
-        l_tmp := utl_raw.concat( hash( src, HASH_SH512 ), c_X931_TRAILER_SH512 ); 
+        l_tmp := utl_raw.concat( hash( src, HASH_SH512 ), c_X931_TRAILER_SH512 );
       elsif sign_alg = SIGN_SHA256_RSA_X931
       then
-        l_tmp := utl_raw.concat( hash( src, HASH_SH256 ), c_X931_TRAILER_SH256 ); 
+        l_tmp := utl_raw.concat( hash( src, HASH_SH256 ), c_X931_TRAILER_SH256 );
       elsif sign_alg = SIGN_SHA384_RSA_X931
       then
-        l_tmp := utl_raw.concat( hash( src, HASH_SH384 ), c_X931_TRAILER_SH384 ); 
+        l_tmp := utl_raw.concat( hash( src, HASH_SH384 ), c_X931_TRAILER_SH384 );
       end if;
-      l_tmp := utl_raw.concat( '6B', utl_raw.copies( 'BB', l_sz - utl_raw.length( l_tmp ) - 2 ), 'BA', l_tmp ); 
+      l_tmp := utl_raw.concat( '6B', utl_raw.copies( 'BB', l_sz - utl_raw.length( l_tmp ) - 2 ), 'BA', l_tmp );
       l_msg := mag( l_tmp );
       l_min := rsub( l_mod, l_msg );
       if r_greater_equal( l_msg, l_min )
       then
         l_msg := l_min;
       end if;
+    elsif sign_alg in ( SIGN_SHA256_RSA_PSS
+                      , SIGN_SHA384_RSA_PSS
+                      , SIGN_SHA512_RSA_PSS
+                      )
+    then
+      declare
+        l_hash_type pls_integer;
+        l_em_len pls_integer;
+        l_mask raw(1);
+        l_first varchar2(2);
+        l_h raw(3999);
+        l_mh raw(3999);
+        l_db raw(3999);
+        l_salt raw(3999);
+        l_masked raw(3999);
+        l_hlen pls_integer;
+      begin
+        l_hash_type := case sign_alg
+                         when SIGN_SHA256_RSA_PSS then HASH_SH256
+                         when SIGN_SHA512_RSA_PSS then HASH_SH512
+                         when SIGN_SHA384_RSA_PSS then HASH_SH384
+                       end;
+        l_hlen := case sign_alg
+                    when SIGN_SHA256_RSA_PSS then 32
+                    when SIGN_SHA512_RSA_PSS then 64
+                    when SIGN_SHA384_RSA_PSS then 48
+                  end;
+        l_key_parameters(1) := demag( l_mod ); -- get rid of any leading 00
+        l_em_len := utl_raw.length( l_key_parameters(1) );
+        l_first := utl_raw.substr( l_key_parameters(1), 1, 1 );
+        if l_first = '01'
+        then
+          l_em_len := l_em_len - 1;
+        end if;
+        l_mh := hash( src, l_hash_type );
+        l_salt := randombytes( l_hlen );
+        l_h := hash( utl_raw.concat( utl_raw.copies( '00', 8 )
+                                   , l_mh
+                                   , l_salt
+                                   )
+                   , l_hash_type
+                   );
+        l_db := utl_raw.concat( utl_raw.copies( '00', l_em_len - 2 * l_hlen - 2 )
+                              , '01'
+                              , l_salt
+                              );
+        l_masked := mgf1( l_h, l_em_len - l_hlen - 1, l_hash_type );
+        l_tmp := utl_raw.concat( utl_raw.bit_xor( l_db, l_masked ), l_h , 'BC' );
+        l_msg := mag( utl_raw.bit_and( l_tmp, get_rsa_pss_mask( l_first ) ) );
+      end;
     else
       if sign_alg = SIGN_SHA1_RSA
       then
-        l_tmp := utl_raw.concat( c_ASN1_SH1, hash( src, HASH_SH1 ) ); 
+        l_tmp := utl_raw.concat( c_ASN1_SH1, hash( src, HASH_SH1 ) );
       elsif sign_alg = SIGN_SHA512_RSA
       then
-        l_tmp := utl_raw.concat( c_ASN1_SH512, hash( src, HASH_SH512 ) ); 
+        l_tmp := utl_raw.concat( c_ASN1_SH512, hash( src, HASH_SH512 ) );
       elsif sign_alg = SIGN_SHA256_RSA
       then
-        l_tmp := utl_raw.concat( c_ASN1_SH256, hash( src, HASH_SH256 ) ); 
+        l_tmp := utl_raw.concat( c_ASN1_SH256, hash( src, HASH_SH256 ) );
       elsif sign_alg = SIGN_SHA384_RSA
       then
-        l_tmp := utl_raw.concat( c_ASN1_SH384, hash( src, HASH_SH384 ) ); 
+        l_tmp := utl_raw.concat( c_ASN1_SH384, hash( src, HASH_SH384 ) );
       elsif sign_alg = SIGN_SHA224_RSA
       then
-        l_tmp := utl_raw.concat( c_ASN1_SH224, hash( src, HASH_SH224 ) ); 
+        l_tmp := utl_raw.concat( c_ASN1_SH224, hash( src, HASH_SH224 ) );
+      elsif sign_alg = SIGN_MD2_RSA
+      then
+        l_tmp := utl_raw.concat( c_ASN1_MD2, hash( src, HASH_MD2 ) );
       end if;
-      l_tmp := utl_raw.concat( '01', utl_raw.copies( 'FF', l_sz - utl_raw.length( l_tmp ) - 3 ), '00', l_tmp ); 
+      l_tmp := utl_raw.concat( '01', utl_raw.copies( 'FF', l_sz - utl_raw.length( l_tmp ) - 3 ), '00', l_tmp );
       l_msg := mag( l_tmp );
     end if;
+    return rsa_chinese_remainder( l_msg, l_key_parameters );
     return demag( powmod( l_msg, mag( l_key_parameters(3) ), l_mod ) );
   end;
   --
@@ -4344,13 +4806,13 @@ $END
       l_rv := utl_raw.concat( mag2asn1( l_r )
                             , mag2asn1( l_s )
                             );
-      l_len := utl_raw.length( l_rv );                          
+      l_len := utl_raw.length( l_rv );
       if l_len < 128
       then
         l_rv := utl_raw.concat( '30' || to_char( l_len, 'fm0X' )
                               , l_rv
                               );
-      else 
+      else
         l_rv := utl_raw.concat( '3081' || to_char( l_len, 'fm0X' )
                               , l_rv
                               );
@@ -4501,6 +4963,9 @@ $END
                        , SIGN_SHA512_RSA_X931
                        , SIGN_SHA1_RSA
                        , SIGN_SHA1_RSA_X931
+                       , SIGN_MD2_RSA
+                       , SIGN_MD5_RSA
+                       , SIGN_SHA256_RSA_PSS
                        )
     then
       raise_application_error( -20016, 'invalid cipher type passed' );
@@ -4526,7 +4991,7 @@ $END
       end if;
       l_decr := demag( l_padded );
       if utl_raw.substr( l_decr, 1, 2 ) != hextoraw( '6BBB' )
-      then 
+      then
         return false;
       end if;
       -- remove X9.31 padding
@@ -4542,7 +5007,7 @@ $END
       end loop;
       l_decr := utl_raw.substr( l_decr, l_idx + 1 );
       l_trailer := utl_raw.substr( l_decr, -2 );
-      l_hash_type := case sign_alg                  
+      l_hash_type := case sign_alg
                        when SIGN_SHA1_RSA_X931   then HASH_SH1
                        when SIGN_SHA256_RSA_X931 then HASH_SH256
                        when SIGN_SHA512_RSA_X931 then HASH_SH512
@@ -4553,10 +5018,65 @@ $END
               or ( sign_alg = SIGN_SHA256_RSA_X931 and l_trailer = c_X931_TRAILER_SH256 )
               or ( sign_alg = SIGN_SHA384_RSA_X931 and l_trailer = c_X931_TRAILER_SH384 )
               ) and utl_raw.substr( l_decr, 1, utl_raw.length( l_decr ) - 2 ) = hash( src, l_hash_type );
+    elsif sign_alg in ( SIGN_SHA256_RSA_PSS
+                      , SIGN_SHA384_RSA_PSS
+                      , SIGN_SHA512_RSA_PSS
+                      )
+    then
+      l_decr := demag( l_padded );
+      if utl_raw.substr( l_decr, -1 ) != hextoraw( 'BC' )
+      then
+        return false;
+      end if;
+      declare
+        l_h raw(3999);
+        l_mh raw(3999);
+        l_db raw(3999);
+        l_masked raw(3999);
+        l_salt raw(3999);
+        l_hlen pls_integer;
+        l_sz pls_integer;
+      begin
+        l_hash_type := case sign_alg
+                         when SIGN_SHA256_RSA_PSS then HASH_SH256
+                         when SIGN_SHA512_RSA_PSS then HASH_SH512
+                         when SIGN_SHA384_RSA_PSS then HASH_SH384
+                       end;
+        l_hlen := case sign_alg
+                    when SIGN_SHA256_RSA_PSS then 32
+                    when SIGN_SHA512_RSA_PSS then 64
+                    when SIGN_SHA384_RSA_PSS then 48
+                  end;
+        l_key_parameters(1) := demag( l_mod ); -- get rid of any leading 00
+        l_mh := hash( src, l_hash_type );
+        l_sz := utl_raw.length( l_key_parameters(1) );
+        if utl_raw.length( l_decr ) < l_sz
+        then
+          l_decr := utl_raw.concat( utl_raw.copies( '00', l_sz - utl_raw.length( l_decr ) ), l_decr );
+        end if;
+        l_h := utl_raw.substr( l_decr, - l_hlen - 1, l_hlen );
+        l_masked := utl_raw.substr( l_decr, 1, utl_raw.length( l_decr ) - l_hlen - 1 );
+        l_db := utl_raw.bit_xor( l_masked
+                               , mgf1( l_h, utl_raw.length( l_masked ), l_hash_type )
+                               );
+        l_db := utl_raw.bit_and( l_db, get_rsa_pss_mask( l_key_parameters(1) ) );
+        if substr( ltrim( l_db, '0' ), 1, 1 ) != '1'
+        then
+          return false;
+        end if;
+        l_idx := instr( l_db, '1' );
+        if mod( l_idx, 2 ) = 1
+        then
+          return false;
+        end if;
+        l_salt := substr( l_db, l_idx + 1 );
+        return hash( utl_raw.concat( utl_raw.copies( '00', 8 ), l_mh, l_salt )
+                   , l_hash_type ) = l_h;
+      end;
     else
-      l_decr := demag( l_padded ); 
+      l_decr := demag( l_padded );
       if utl_raw.substr( l_decr, 1, 2 ) != hextoraw( '01FF' )
-      then 
+      then
         return false;
       end if;
       -- remove EMSA-PKCS1-v1_5 padding
@@ -4575,27 +5095,37 @@ $END
       then
         l_hash_type := HASH_SH1;
         l_idx := utl_raw.length( c_ASN1_SH1 );
-        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH1; 
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH1;
       elsif sign_alg = SIGN_SHA512_RSA
       then
         l_hash_type := HASH_SH512;
         l_idx := utl_raw.length( c_ASN1_SH512 );
-        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH512; 
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH512;
       elsif sign_alg = SIGN_SHA256_RSA
       then
         l_hash_type := HASH_SH256;
         l_idx := utl_raw.length( c_ASN1_SH256 );
-        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH256; 
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH256;
       elsif sign_alg = SIGN_SHA384_RSA
       then
         l_hash_type := HASH_SH384;
         l_idx := utl_raw.length( c_ASN1_SH384 );
-        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH384; 
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH384;
       elsif sign_alg = SIGN_SHA224_RSA
       then
         l_hash_type := HASH_SH224;
         l_idx := utl_raw.length( c_ASN1_SH224 );
-        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH224; 
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_SH224;
+      elsif sign_alg = SIGN_MD2_RSA
+      then
+        l_hash_type := HASH_MD2;
+        l_idx := utl_raw.length( c_ASN1_MD2 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_MD2;
+      elsif sign_alg = SIGN_MD5_RSA
+      then
+        l_hash_type := HASH_MD5;
+        l_idx := utl_raw.length( c_ASN1_MD5 );
+        l_rv := utl_raw.substr( l_decr, 1, l_idx ) = c_ASN1_MD5;
       end if;
       l_rv := l_rv and l_idx > 10 and utl_raw.substr( l_decr, l_idx + 1 ) = hash( src, l_hash_type );
     end if;
@@ -4653,7 +5183,7 @@ $END
                    , SIGN_SHA384withECDSA
                    , SIGN_SHA512withECDSA
                    )
-    then   
+    then
       check_starting_sequence( sign, l_ind );
       l_r := get_integer( sign, l_ind );
       l_s := get_integer( sign, l_ind );
@@ -4661,10 +5191,10 @@ $END
       l_r := utl_raw.substr( sign, 1, l_curve.nlen );
       l_s := utl_raw.substr( sign, l_curve.nlen + 1 );
     end if;
-	if ltrim( rawtohex( l_r ), '0' ) is null or ltrim( rawtohex( l_s ), '0' ) is null
-	then
-	  return false;
-	end if;
+    if ltrim( rawtohex( l_r ), '0' ) is null or ltrim( rawtohex( l_s ), '0' ) is null
+    then
+      return false;
+    end if;
     l_inv := powmod( mag( l_s ), nsub( l_curve.group_order, 2 ), l_curve.group_order );
     l_u1 := mulmod( mag( hash( src, l_hash_type ) ), l_inv, l_curve.group_order );
     l_u2 := mulmod( mag( l_r ), l_inv, l_curve.group_order );
