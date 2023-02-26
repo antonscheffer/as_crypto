@@ -1080,11 +1080,10 @@ is
                     , p_curve.b
                     , p_curve.prime
                     );
-      if l_first = '02'
+      p_point.y := powmod( l_y2, p_curve.p_plus_1_div_4, p_curve.prime );
+      if to_number( l_first ) - 2 != mod( p_point.y( 0 ), 2 )
       then
-        p_point.y := powmod( l_y2, p_curve.p_plus_1_div_4, p_curve.prime );
-      else
-        p_point.y := rsub( p_curve.prime, powmod( l_y2, p_curve.p_plus_1_div_4, p_curve.prime ) );
+        p_point.y := rsub( p_curve.prime, p_point.y );
       end if;
       -- raise_application_error( -20023, 'EC Point compression not supported.' );
     end if;
@@ -4197,7 +4196,7 @@ $END
     l_len pls_integer;
     l_encr_len pls_integer;
     l_block_size pls_integer := 16;
-    l_mode pls_integer := dbms_crypto.ENCRYPT_AES + dbms_crypto.CHAIN_CBC + dbms_crypto.PAD_ZERO;
+    l_mode pls_integer := ENCRYPT_AES + CHAIN_CBC + PAD_ZERO;
     type tp_ghash_precomp is table of boolean index by pls_integer;
     l_ghash_precomp tp_ghash_precomp;
     l_x number;                                                                                            
@@ -4246,7 +4245,7 @@ $END
     end;                                                                                                     
   --
   begin
-    l_H := dbms_crypto.encrypt( utl_raw.copies( '00', l_block_size ), l_mode, p_key );
+    l_H := encrypt( utl_raw.copies( '00', l_block_size ), l_mode, p_key );
     for i in 0 .. 1                                                                                        
     loop                                                                                                   
       l_x := to_number( substr( lpad( l_H, 32, '0' ), 1 + i * 16, 16 ), lpad( 'X', 16, 'X' ) );            
@@ -4276,7 +4275,7 @@ $END
     else
       l_counter := utl_raw.concat( p_iv, utl_raw.copies( '00', l_block_size - 13 ), '01' );
     end if;
-    l_tag_init := dbms_crypto.encrypt( l_counter, l_mode, p_key );
+    l_tag_init := encrypt( l_counter, l_mode, p_key );
     l_tag_tmp := ghash( utl_raw.substr( utl_raw.concat( p_aad, utl_raw.copies( '00', l_block_size ) ), 1, l_block_size ) );
     l_len := nvl( utl_raw.length( p_src ), 0 );
     if not p_encrypt
@@ -4288,7 +4287,7 @@ $END
       l_counter := utl_raw.concat( utl_raw.substr( l_counter, 1, l_block_size - 4 )
                                  , to_char( to_number( utl_raw.substr( l_counter, - 4 ), '0XXXXXXX' ) + 1, 'fm0XXXXXXX' )
                                  );
-      l_encr_ctr := dbms_crypto.encrypt( l_counter, l_mode, p_key );
+      l_encr_ctr := encrypt( l_counter, l_mode, p_key );
       l_src_txt := utl_raw.substr( p_src, 1 + i * l_block_size, l_block_size );
       l_encr_txt := utl_raw.bit_xor( l_src_txt, l_encr_ctr );
       if p_encrypt
@@ -4305,7 +4304,7 @@ $END
       l_counter := utl_raw.concat( utl_raw.substr( l_counter, 1, l_block_size - 4 )
                                  , to_char( 1 + to_number( utl_raw.substr( l_counter, -4 ), '0XXXXXXX' ), 'fm0XXXXXXX' )
                                  );
-      l_encr_ctr := dbms_crypto.encrypt( l_counter, l_mode, p_key );
+      l_encr_ctr := encrypt( l_counter, l_mode, p_key );
       if p_encrypt
       then
         l_src_txt := utl_raw.substr( p_src, l_encr_len - l_len );
@@ -4869,7 +4868,7 @@ $END
         l_rb := utl_raw.bit_or( '80', l_rb );
     end if;
     l_rb := utl_raw.reverse( l_rb );
-    l_a := utl_raw.substr( dbms_crypto.hash( l_key_parameters(2), HASH_SH512 ), 1, l_curve.nlen );
+    l_a := utl_raw.substr( hash( l_key_parameters(2), HASH_SH512 ), 1, l_curve.nlen );
     l_a := utl_raw.bit_and( utl_raw.concat( 'F8', utl_raw.copies( 'FF', l_curve.nlen - 2 ), '3F' ), l_a );
     l_a := utl_raw.bit_or( utl_raw.concat( utl_raw.copies( '00', l_curve.nlen - 1 ), '40' ), l_a );
     l_a := utl_raw.reverse( l_a );
