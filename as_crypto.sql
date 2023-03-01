@@ -3,7 +3,7 @@ is
 /*
 MIT License
 
-Copyright (c) 2016-2022 Anton Scheffer
+Copyright (c) 2016-2023 Anton Scheffer
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -61,6 +61,7 @@ SOFTWARE.
     CHAIN_ECB          CONSTANT PLS_INTEGER            :=   768;  -- 0x0300
     CHAIN_OFB          CONSTANT PLS_INTEGER            :=  1024;  -- 0x0400
     CHAIN_GCM          CONSTANT PLS_INTEGER            :=  1280;  -- 0x0500
+    CHAIN_CCM          CONSTANT PLS_INTEGER            :=  1536;  -- 0x0600
     CHAIN_OFB_REAL     CONSTANT PLS_INTEGER            :=  2560;  -- 0x0A00
    -- Block Cipher Padding Modifiers
     PAD_PKCS5          CONSTANT PLS_INTEGER            :=  4096;  -- 0x1000
@@ -100,6 +101,10 @@ SOFTWARE.
     SIGN_SHA256_RSA_PSS         constant pls_integer := 17;  -- SHA 256 bit hash function with RSASSA-PSS
     SIGN_SHA384_RSA_PSS         constant pls_integer := 18;  -- SHA 384 bit hash function with RSASSA-PSS
     SIGN_SHA512_RSA_PSS         constant pls_integer := 19;  -- SHA 512 bit hash function with RSASSA-PSS
+--
+    AES_CBC_PKCS5               constant pls_integer := ENCRYPT_AES + CHAIN_CBC + PAD_PKCS5;
+    AES_GCM_NONE                constant pls_integer := ENCRYPT_AES + CHAIN_GCM + PAD_NONE;
+    AES_CCM_NONE                constant pls_integer := ENCRYPT_AES + CHAIN_CCM + PAD_NONE;
 --
   function hash( src raw, typ pls_integer )
   return raw;
@@ -162,6 +167,16 @@ SOFTWARE.
                  , sign_alg binary_integer
                  )
   return boolean;
+--
+  function base64URL_decode( p_txt varchar2 )
+  return raw;
+--
+  function base64URL_encode( p_raw raw )
+  return varchar2;
+--
+  function base64URL_encode( p_txt varchar2 )
+  return varchar2;
+--
 end;
 /
 
@@ -247,7 +262,21 @@ is
   SP6 tp_crypto;
   SP7 tp_crypto;
   SP8 tp_crypto;
---
+  --
+  function int2hex( p_val integer, p_len pls_integer )
+  return varchar2
+  is
+  begin
+    return to_char( p_val, rpad( 'fm0', 2 + 2 * p_len, 'X' ) ); 
+  end;
+  --
+  function hex2int( p_val varchar2 )
+  return number
+  is
+  begin
+    return to_number( p_val, rpad( 'X', length( p_val ), 'X' ) ); 
+  end;
+  --
   function mag( p1 varchar2 )
   return tp_mag
   is
@@ -988,6 +1017,385 @@ is
     return monpro( xm, one);
   end;
   --
+  function base64URL_decode( p_txt varchar2 )
+  return raw
+  is
+  begin
+    return utl_encode.base64_decode( utl_raw.cast_to_raw( translate( p_txt, '-_', '+/' ) ) );
+  end;
+  --
+  function base64URL_encode( p_raw raw )
+  return varchar2
+  is
+  begin
+    return translate( utl_raw.cast_to_varchar2( utl_encode.base64_encode( p_raw ) )
+                    , '+/=' || chr(10) || chr(13)
+                    , '-_'
+                    );
+  end;
+  --
+  function base64URL_encode( p_txt varchar2 )
+  return varchar2
+  is
+  begin
+    return base64URL_encode( p_raw => utl_raw.cast_to_raw( p_txt ) );
+  end;
+  --
+  function xjv
+    ( p_json varchar2 character set any_cs
+    , p_path varchar2
+    , p_unescape varchar2 := 'Y'
+    )
+  return varchar2 character set p_json%charset
+  is
+    c_double_quote  constant varchar2(1) character set p_json%charset := '"';
+    c_single_quote  constant varchar2(1) character set p_json%charset := '''';
+    c_back_slash    constant varchar2(1) character set p_json%charset := '\';
+    c_space         constant varchar2(1) character set p_json%charset := ' ';
+    c_colon         constant varchar2(1) character set p_json%charset := ':';
+    c_comma         constant varchar2(1) character set p_json%charset := ',';
+    c_end_brace     constant varchar2(1) character set p_json%charset := '}';
+    c_start_brace   constant varchar2(1) character set p_json%charset := '{';
+    c_end_bracket   constant varchar2(1) character set p_json%charset := ']';
+    c_start_bracket constant varchar2(1) character set p_json%charset := '[';
+    c_ht            constant varchar2(1) character set p_json%charset := chr(9);
+    c_lf            constant varchar2(1) character set p_json%charset := chr(10);
+    c_cr            constant varchar2(1) character set p_json%charset := chr(13);
+    c_ws            constant varchar2(4) character set p_json%charset := c_space || c_ht || c_cr || c_lf;
+--
+    g_idx number;
+    g_end number;
+--
+    l_nchar boolean := isnchar( c_space );
+    l_pos number;
+    l_ind number;
+    l_start number;
+    l_rv_end number;
+    l_rv_start number;
+    l_path varchar2(32767);
+    l_name varchar2(32767);
+    l_tmp_name varchar2(32767);
+    l_rv varchar2(32767) character set p_json%charset;
+    l_chr varchar2(10) character set p_json%charset;
+    l_cnt pls_integer;
+--
+    procedure skip_whitespace
+    is
+    begin
+      while substr( p_json, g_idx, 1 ) in ( c_space, c_lf, c_cr, c_ht )
+      loop
+        g_idx:= g_idx+ 1;
+      end loop;
+      if g_idx > g_end
+      then
+        raise_application_error( -20001, 'Unexpected end of JSON' );
+      end if;
+    end;
+--
+    procedure skip_value;
+    procedure skip_array;
+--
+    procedure skip_object
+    is
+    begin
+      if substr( p_json, g_idx, 1 ) = c_start_brace
+      then
+        g_idx := g_idx + 1;
+        loop
+          skip_whitespace;
+          exit when substr( p_json, g_idx, 1 ) = c_end_brace; -- empty object or object with "trailing comma"
+          skip_value; -- skip name
+          skip_whitespace;
+          if substr( p_json, g_idx, 1 ) != c_colon
+          then
+            raise_application_error( -20002, 'No valid JSON, expected a colon at position ' || g_idx );
+          end if;
+          g_idx := g_idx + 1; -- skip colon
+          skip_value; -- skip value
+          skip_whitespace;
+          case substr( p_json, g_idx, 1 )
+            when c_comma then g_idx := g_idx + 1;
+            when c_end_brace then exit;
+            else raise_application_error( -20003, 'No valid JSON, expected a comma or end brace at position ' || g_idx );
+          end case;
+        end loop;
+        g_idx := g_idx + 1;
+      end if;
+    end;
+--
+    procedure skip_array
+    is
+    begin
+      if substr( p_json, g_idx, 1 ) = c_start_bracket
+      then
+        g_idx := g_idx + 1;
+        loop
+          skip_whitespace;
+          exit when substr( p_json, g_idx, 1 ) = c_end_bracket; -- empty array or array with "trailing comma"
+          skip_value;
+          skip_whitespace;
+          case substr( p_json, g_idx, 1 )
+            when c_comma then g_idx := g_idx + 1;
+            when c_end_bracket then exit;
+            else raise_application_error( -20004, 'No valid JSON, expected a comma or end bracket at position ' || g_idx );
+          end case;
+        end loop;
+        g_idx := g_idx + 1;
+      end if;
+    end;
+--
+    procedure skip_value
+    is
+    begin
+      skip_whitespace;
+      case substr( p_json, g_idx, 1 )
+        when c_double_quote
+        then
+          loop
+            g_idx := instr( p_json, c_double_quote, g_idx + 1 );
+            exit when substr( p_json, g_idx - 1, 1 ) != c_back_slash
+                   or g_idx = 0
+                   or (   substr( p_json, g_idx - 2, 2 ) = c_back_slash || c_back_slash
+                      and substr( p_json, g_idx - 3, 1 ) != c_back_slash
+                      ); -- doesn't handle cases of values ending with multiple (escaped) \
+          end loop;
+          if g_idx = 0
+          then
+            raise_application_error( -20005, 'No valid JSON, no end string found' );
+          end if;
+          g_idx := g_idx + 1;
+        when c_single_quote
+        then
+          g_idx := instr( p_json, c_single_quote, g_idx ) + 1;
+          if g_idx = 1
+          then
+            raise_application_error( -20006, 'No valid JSON, no end string found' );
+          end if;
+        when c_start_brace
+        then
+          skip_object;
+        when c_start_bracket
+        then
+          skip_array;
+        else -- should be a JSON-number, TRUE, FALSE or NULL, but we don't check for it
+          g_idx := least( coalesce( nullif( instr( p_json, c_space, g_idx ), 0 ), g_end + 1 )
+                        , coalesce( nullif( instr( p_json, c_comma, g_idx ), 0 ), g_end + 1 )
+                        , coalesce( nullif( instr( p_json, c_end_brace, g_idx ), 0 ), g_end + 1 )
+                        , coalesce( nullif( instr( p_json, c_end_bracket, g_idx ), 0 ), g_end  + 1)
+                        , coalesce( nullif( instr( p_json, c_colon, g_idx ), 0 ), g_end + 1 )
+                        );
+          if g_idx = g_end + 1
+          then
+            raise_application_error( -20007, 'No valid JSON, no end string found' );
+          end if;
+      end case;
+    end;
+  begin
+    if p_json is null
+    then
+      return null;
+    end if;
+    l_path := ltrim( p_path, c_ws || '$.' );
+    if l_path is null
+    then
+      return null;
+    end if;
+    g_idx := 1;
+    g_end := length( p_json );
+    for i in 1 .. 20 -- max 20 levels deep in p_path
+    loop
+      l_path := ltrim( l_path, c_ws );
+      l_pos := least( nvl( nullif( instr( l_path, '.' ), 0 ), 32768 )
+                    , nvl( nullif( instr( l_path, c_start_bracket ), 0 ), 32768 )
+                    , nvl( nullif( instr( l_path, c_end_bracket ), 0 ), 32768 )
+                    );
+      if l_pos = 32768
+      then
+        l_name := l_path;
+        l_path := null;
+      elsif substr( l_path, l_pos, 1 ) = '.'
+      then
+        l_name := substr( l_path, 1, l_pos - 1 );
+        l_path := substr( l_path, l_pos + 1 );
+      elsif substr( l_path, l_pos, 1 ) = c_start_bracket and l_pos > 1
+      then
+        l_name := substr( l_path, 1, l_pos - 1 );
+        l_path := substr( l_path, l_pos );
+      elsif substr( l_path, l_pos, 1 ) = c_start_bracket and l_pos = 1
+      then
+        l_pos := instr( l_path, c_end_bracket );
+        if l_pos = 0
+        then
+          raise_application_error( -20008, 'No valid path, end bracket expected' );
+        end if;
+        l_name := substr( l_path, 1, l_pos );
+        if substr( l_path, l_pos + 1, 1 ) = '.'
+        then
+          l_path := substr( l_path, l_pos + 2 );
+        else
+          l_path := substr( l_path, l_pos + 1 );
+        end if;
+      end if;
+      l_name := rtrim( l_name, c_ws );
+--
+      skip_whitespace;
+      if substr( p_json, g_idx, 1 ) = c_start_brace and substr( l_name, 1, 1 ) != c_start_bracket
+      then -- search for a name inside JSON object
+           -- json unescape name?
+        l_cnt := 0;
+        loop
+          g_idx := g_idx + 1; -- skip start brace or comma
+          skip_whitespace;
+          if substr( p_json, g_idx, 1 ) = c_end_brace
+          then
+            exit when l_name = 'length()' and l_path is null;
+            return null;
+          end if;
+          l_start := g_idx;
+          skip_value;  -- skip a name
+          l_tmp_name := substr( p_json, l_start, g_idx - l_start ); -- look back to get the name skipped
+           -- json unescape name?
+          skip_whitespace;
+          if substr( p_json, g_idx, 1 ) != c_colon
+          then
+            raise_application_error( -20002, 'No valid JSON, expected a colon at position ' || g_idx );
+          end if;
+          g_idx := g_idx + 1;  -- skip colon
+          skip_whitespace;
+          l_rv_start := g_idx;
+          skip_value;
+          if l_tmp_name in ( c_double_quote || l_name || c_double_quote
+                           , c_single_quote || l_name || c_single_quote
+                           , l_name
+                           )
+          then
+            l_rv_end := g_idx;
+            exit;
+          else
+            l_cnt := l_cnt + 1;
+            skip_whitespace;
+            if substr( p_json, g_idx, 1 ) = c_comma
+            then
+              null; -- OK, keep on searching for name
+            else
+              exit when l_name = 'length()' and l_path is null;
+              return null; -- searched name not found
+            end if;
+          end if;
+        end loop;
+      elsif substr( p_json, g_idx, 1 ) = c_start_bracket and substr( l_name, 1, 1 ) = c_start_bracket
+      then
+        begin
+          l_ind := to_number( rtrim( ltrim( l_name, c_start_bracket ), c_end_bracket ) );
+        exception
+          when value_error
+          then
+            raise_application_error( -20009, 'No valid path, array index number expected' );
+        end;
+        for i in 0 .. l_ind loop
+          g_idx := g_idx + 1; -- skip start bracket or comma
+          skip_whitespace;
+          if substr( p_json, g_idx, 1 ) = c_end_bracket
+          then
+            return null;
+          end if;
+          l_rv_start := g_idx;
+          skip_value;
+          if i = l_ind
+          then
+            l_rv_end := g_idx;
+            exit;
+          else
+            skip_whitespace;
+            if substr( p_json, g_idx, 1 ) = c_comma
+            then
+              null; -- OK
+            else
+              return null;
+            end if;
+          end if;
+        end loop;
+      elsif substr( p_json, g_idx, 1 ) = c_start_bracket and l_name = 'length()' and l_path is null
+      then
+        l_cnt := 0;
+        loop
+          g_idx := g_idx + 1; -- skip start bracket or comma
+          skip_whitespace;
+          exit when substr( p_json, g_idx, 1 ) = c_end_bracket;
+          l_cnt := l_cnt + 1;
+          skip_value;
+          skip_whitespace;
+          exit when substr( p_json, g_idx, 1 ) = c_end_bracket;
+          if substr( p_json, g_idx, 1 ) != c_comma
+          then
+            raise_application_error( -20010, 'No valid JSON, expected a comma at position ' || g_idx );
+          end if;
+        end loop;
+        return l_cnt;
+      else
+        return null;
+      end if;
+      exit when l_path is null;
+      g_idx := l_rv_start;
+      g_end := l_rv_end - 1;
+    end loop;
+    if l_name = 'length()'
+    then
+      return l_cnt;
+    end if;
+    if (  (   substr( p_json, l_rv_start, 1 ) = c_double_quote
+          and substr( p_json, l_rv_end - 1, 1 ) = c_double_quote
+          )
+       or (   substr( p_json, l_rv_start, 1 ) = c_single_quote
+          and substr( p_json, l_rv_end - 1, 1 ) = c_single_quote
+          )
+       )
+    then
+      l_rv_start := l_rv_start + 1;
+      l_rv_end := l_rv_end - 1;
+    end if;
+    l_pos := instr( p_json, c_back_slash, l_rv_start );
+    if l_pos = 0 or l_pos >= l_rv_end or nvl( substr( upper( p_unescape ), 1, 1 ), 'Y' ) = 'N'
+    then -- no JSON unescaping needed
+      return substr( p_json, l_rv_start, l_rv_end - l_rv_start );
+    end if;
+    l_start := l_rv_start;
+    loop
+      l_chr := substr( p_json, l_pos + 1, 1 );
+      if l_chr in ( '"', '\', '/' )
+      then
+        l_rv := l_rv || ( substr( p_json, l_start, l_pos - l_start ) || l_chr );
+      elsif l_chr in ( 'b', 'f', 'n', 'r', 't' )
+      then
+        l_chr := translate( l_chr
+                          , 'btnfr'
+                          , chr(8) || chr(9) || chr(10) || chr(12) || chr(13)
+                          );
+        l_rv := l_rv || ( substr( p_json, l_start, l_pos - l_start ) || l_chr );
+      elsif l_chr = 'u'
+      then -- unicode character
+        if l_nchar
+        then
+          l_chr := utl_i18n.raw_to_nchar( hextoraw( substr( p_json, l_pos + 2, 4 ) ), 'AL16UTF16' );
+        else
+          l_chr := utl_i18n.raw_to_char( hextoraw( substr( p_json, l_pos + 2, 4 ) ), 'AL16UTF16' );
+        end if;
+        l_rv := l_rv || ( substr( p_json, l_start, l_pos - l_start ) || l_chr );
+        l_pos := l_pos + 4;
+      else
+        raise_application_error( -20011, 'No valid JSON, unexpected back slash  at position ' || l_pos );
+      end if;
+      l_start := l_pos + 2;
+      l_pos := instr( p_json, c_back_slash, l_start );
+      if l_pos = 0 or l_pos >= l_rv_end
+      then
+        l_rv := l_rv || substr( p_json, l_start, l_rv_end - l_start );
+        exit;
+      end if;
+    end loop;
+    return l_rv;
+  end xjv;
+  --
   procedure get_named_ed_curve( p_name in varchar2, p_curve out tp_ed_curve )
   is
   begin
@@ -1583,7 +1991,54 @@ is
     then
       p_key_parameters.delete;
       return false;
-  end;
+  end parse_DER_RSA_PRIV_key;
+  --
+  function parse_jwk_RSA_PRIV_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_tmp raw(32767);
+    l_key varchar2(32767);
+  begin
+    p_key_parameters.delete;
+    l_key := utl_raw.cast_to_varchar2( p_key );
+    if xjv( l_key, 'keys' ) is not null
+    then
+      for i in 0 .. xjv( l_key, 'keys.length()' ) - 1
+      loop
+        l_tmp := utl_raw.cast_to_raw( xjv( l_key, 'keys[' || i || ']' ) );
+        if parse_jwk_RSA_PRIV_key( l_tmp, p_key_parameters )
+        then
+          return true;
+        end if;
+      end loop;
+    end if;
+    if     xjv( l_key, 'kty' ) = 'RSA'
+       and xjv( l_key, 'n' ) is not null
+       and xjv( l_key, 'e' ) is not null
+       and xjv( l_key, 'd' ) is not null
+    then
+      p_key_parameters(1) := base64URL_decode( xjv( l_key, 'n' ) ); -- n modulus
+      p_key_parameters(2) := base64URL_decode( xjv( l_key, 'e' ) ); -- e public
+      p_key_parameters(3) := base64URL_decode( xjv( l_key, 'd' ) ); -- d private
+      if xjv( l_key, 'p' ) is not null
+      then
+        p_key_parameters(4) := base64URL_decode( xjv( l_key, 'qi' ) ); -- (inverse of q) mod p coefficient
+        p_key_parameters(5) := base64URL_decode( xjv( l_key, 'p' ) );  -- p prime1
+        p_key_parameters(6) := base64URL_decode( xjv( l_key, 'q' ) );  -- q prime2
+        p_key_parameters(7) := base64URL_decode( xjv( l_key, 'dp' ) ); -- d mod (p-1) exponent1
+        p_key_parameters(8) := base64URL_decode( xjv( l_key, 'dq' ));  -- d mod (q-1) exponent2
+      end if;
+      return true;
+    end if;
+    return false;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end parse_jwk_RSA_PRIV_key;
   --
   function parse_DER_RSA_PUB_key
     ( p_key raw
@@ -1627,7 +2082,44 @@ is
     then
       p_key_parameters.delete;
       return false;
-  end;
+  end parse_DER_RSA_PUB_key;
+  --
+  function parse_jwk_RSA_PUB_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_tmp raw(32767);
+    l_key varchar2(32767);
+  begin
+    p_key_parameters.delete;
+    l_key := utl_raw.cast_to_varchar2( p_key );
+    if xjv( l_key, 'keys' ) is not null
+    then
+      for i in 0 .. xjv( l_key, 'keys.length()' ) - 1
+      loop
+        l_tmp := utl_raw.cast_to_raw( xjv( l_key, 'keys[' || i || ']' ) );
+        if parse_jwk_RSA_PUB_key( l_tmp, p_key_parameters )
+        then
+          return true;
+        end if;
+      end loop;
+    end if;
+    if     xjv( l_key, 'kty' ) = 'RSA'
+       and xjv( l_key, 'n' ) is not null
+       and xjv( l_key, 'e' ) is not null
+    then
+      p_key_parameters(1) := base64URL_decode( xjv( l_key, 'n' ) ); -- n modulus
+      p_key_parameters(2) := base64URL_decode( xjv( l_key, 'e' ) ); -- e public
+      return true;
+    end if;
+    return false;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end parse_jwk_RSA_PUB_key;
   --
   function parse_DER_EC_PRIV_key
     ( p_key raw
@@ -1688,7 +2180,76 @@ is
     then
       p_key_parameters.delete;
       return false;
-  end;
+  end parse_DER_EC_PRIV_key;
+  --
+  function parse_raw_EC_PRIV_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_len pls_integer;
+  begin
+    p_key_parameters.delete;
+    l_len := utl_raw.length( p_key );
+    case l_len
+      when 32 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+      when 48 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+      when 66 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+    else
+      raise value_error;
+    end case;
+    p_key_parameters(2) := p_key;
+    return true;
+  exception when value_error
+    then
+      return false;
+  end parse_raw_EC_PRIV_key;
+  --
+  function parse_jwk_EC_PRIV_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_tmp raw(32767);
+    l_key varchar2(32767);
+    l_curve tp_ec_curve;
+  begin
+    p_key_parameters.delete;
+    l_key := utl_raw.cast_to_varchar2( p_key );
+    if xjv( l_key, 'keys' ) is not null
+    then
+      for i in 0 .. xjv( l_key, 'keys.length()' ) - 1
+      loop
+        l_tmp := utl_raw.cast_to_raw( xjv( l_key, 'keys[' || i || ']' ) );
+        if parse_jwk_EC_PRIV_key( l_tmp, p_key_parameters )
+        then
+          return true;
+        end if;
+      end loop;
+    end if;
+    if     xjv( l_key, 'kty' ) = 'EC'
+       and xjv( l_key, 'x' ) is not null
+       and xjv( l_key, 'y' ) is not null
+       and xjv( l_key, 'd' ) is not null
+    then
+      case xjv( l_key, 'crv' )
+        when 'P-256' then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+        when 'P-384' then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+        when 'P-521' then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+        else raise value_error;
+      end case;
+      get_named_curve( utl_raw.cast_to_varchar2( p_key_parameters(1) ), l_curve );
+      p_key_parameters(2) := lpad( base64URL_decode( xjv( l_key, 'd' ) ), l_curve.nlen * 2, '0' );
+      return true;
+    end if;
+    return false;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end parse_jwk_EC_PRIV_key;
   --
   function parse_DER_EC_PUB_key
     ( p_key raw
@@ -1727,8 +2288,90 @@ is
     then
       p_key_parameters.delete;
       return false;
-  end;
+  end parse_DER_EC_PUB_key;
   --
+  function parse_raw_EC_PUB_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_len pls_integer;
+    l_first raw(1);
+  begin
+    p_key_parameters.delete;
+    l_len := utl_raw.length( p_key );
+    l_first := utl_raw.substr( p_key, 1, 1 );
+    case
+    when l_first = '04' then
+      case l_len
+        when 65  then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+        when 97  then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+        when 133 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+        else raise value_error;
+      end case;
+    when l_first in ( '02', '03' ) then
+      case l_len
+        when 33 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+        when 49 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+        when 67 then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+        else raise value_error;
+      end case;
+    else
+      raise value_error;
+    end case;
+    p_key_parameters(2) := utl_raw.substr( p_key, 2 );
+    return true;
+  exception when value_error
+    then
+      return false;
+  end parse_raw_EC_PUB_key;
+  --
+  function parse_jwk_EC_PUB_key
+    ( p_key raw
+    , p_key_parameters out tp_key_parameters
+    )
+  return boolean
+  is
+    l_tmp raw(32767);
+    l_key varchar2(32767);
+    l_curve tp_ec_curve;
+  begin
+    p_key_parameters.delete;
+    l_key := utl_raw.cast_to_varchar2( p_key );
+    if xjv( l_key, 'keys' ) is not null
+    then
+      for i in 0 .. xjv( l_key, 'keys.length()' ) - 1
+      loop
+        l_tmp := utl_raw.cast_to_raw( xjv( l_key, 'keys[' || i || ']' ) );
+        if parse_jwk_EC_PUB_key( l_tmp, p_key_parameters )
+        then
+          return true;
+        end if;
+      end loop;
+    end if;
+    if     xjv( l_key, 'kty' ) = 'EC'
+       and xjv( l_key, 'x' ) is not null
+       and xjv( l_key, 'y' ) is not null
+    then
+      case xjv( l_key, 'crv' )
+        when 'P-256' then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp256' );
+        when 'P-384' then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp384' );
+        when 'P-521' then p_key_parameters(1) := utl_raw.cast_to_raw( 'nistp521' );
+        else raise value_error;
+      end case;
+      get_named_curve( utl_raw.cast_to_varchar2( p_key_parameters(1) ), l_curve );
+      p_key_parameters(2) := '04'
+        || lpad( base64URL_decode( xjv( l_key, 'x' ) ), l_curve.nlen * 2, '0' )
+        || lpad( base64URL_decode( xjv( l_key, 'y' ) ), l_curve.nlen * 2, '0' );
+      return true;
+    end if;
+    return false;
+  exception when value_error
+    then
+      p_key_parameters.delete;
+      return false;
+  end parse_jwk_EC_PUB_key;
   --
   function parse_DER_EdDSA_priv_key
     ( p_key raw
@@ -4185,71 +4828,71 @@ $END
   function gcm_aes( p_encrypt boolean, p_src raw, p_key raw, p_iv raw, p_aad raw, p_tag out raw )
   return raw
   is
-    l_counter raw(3999);
-    l_encrypted raw(3999);
-    l_src_txt raw(3999);
-    l_encr_ctr raw(3999);
-    l_encr_txt raw(3999);
-    l_H raw(3999);
-    l_tag_init raw(3999);
-    l_tag_tmp raw(3999);
-    l_len pls_integer;
-    l_encr_len pls_integer;
+    l_counter    raw(3999);
+    l_encrypted  raw(3999);
+    l_src_txt    raw(3999);
+    l_encr_ctr   raw(3999);
+    l_encr_txt   raw(3999);
+    l_H          raw(3999);
+    l_tag_init   raw(3999);
+    l_tag_tmp    raw(3999);
+    l_len        pls_integer;
+    l_aad_len    pls_integer := nvl( utl_raw.length( p_aad ), 0 );
+    l_encr_len   pls_integer;
     l_block_size pls_integer := 16;
-    l_mode pls_integer := ENCRYPT_AES + CHAIN_CBC + PAD_ZERO;
+    l_mode       pls_integer := ENCRYPT_AES + CHAIN_CBC + PAD_ZERO;
     type tp_ghash_precomp is table of boolean index by pls_integer;
     l_ghash_precomp tp_ghash_precomp;
-    l_x number;                                                                                            
---
-    function ghash( p_b varchar2 )                                                             
-    return varchar2                                                                                          
-    is                                                                                                       
-      l_v raw(16);                                                                                           
-      l_z raw(16);                                                                                           
-      l_reduce boolean;                                                                                      
-      l_v0 number;                                                                                             
-      l_v1 number;                                                                                           
+    l_x number;
+    --
+    function ghash( p_b varchar2 )
+    return varchar2
+    is
+      l_v raw(16);
+      l_z raw(16);
+      l_reduce boolean;
+      l_v0 number;
+      l_v1 number;
     begin
-      l_z := utl_raw.copies( '00', 16 );                                                                           
+      l_z := utl_raw.copies( '00', 16 );
       for i in 0 .. trunc( length( p_b ) / 32 ) - 1
       loop
         l_v := lpad( substr( p_b, 1 + i * 32, 32 ), 32, '0' );
         l_v := utl_raw.bit_xor( l_v, l_z );
-        l_z := utl_raw.copies( '00', 16 );                                                                           
-        for i in 0 .. 1                                                                                        
-        loop                                                                                                   
-          for j in 0 .. 63 - i                                                                                 
-          loop                                                                                                 
+        l_z := utl_raw.copies( '00', 16 );
+        for i in 0 .. 1
+        loop
+          for j in 0 .. 63 - i
+          loop
             if l_ghash_precomp( i * 64 + j )
-            then                                                                                               
-              l_z := utl_raw.bit_xor( l_z, l_v );                                                              
-            end if;                                                                                            
-            l_v0 := to_number( substr( rawtohex( l_v ), 1, 16 ), rpad( 'X', 16, 'X' ) );                       
-            l_v1 := to_number( substr( rawtohex( l_v ), -16 ), rpad( 'X', 16, 'X' ) );                         
-            l_reduce := bitand( l_v1, 1 ) > 0;                                                                 
-            l_v1 := trunc( l_v1 / 2 ) + case when bitand( l_v0, 1 ) > 0 then 9223372036854775808 else 0 end;   
-            l_v := to_char( trunc( l_v0 / 2 ), 'FM' || rpad( '0', 16, 'X' ) )                                  
-                || to_char( l_v1, 'FM' || rpad( '0', 16, 'X' ) );                                              
-            if l_reduce                                                                                        
-            then                                                                                               
-              l_v := utl_raw.bit_xor( l_v, 'E1000000000000000000000000000000' );                               
-            end if;                                                                                            
-          end loop;                                                                                            
-        end loop;                                                                                              
+            then
+              l_z := utl_raw.bit_xor( l_z, l_v );
+            end if;
+            l_v0 := to_number( substr( rawtohex( l_v ), 1, 16 ), rpad( 'X', 16, 'X' ) );
+            l_v1 := to_number( substr( rawtohex( l_v ), -16 ), rpad( 'X', 16, 'X' ) );
+            l_reduce := bitand( l_v1, 1 ) > 0;
+            l_v1 := trunc( l_v1 / 2 ) + case when bitand( l_v0, 1 ) > 0 then 9223372036854775808 else 0 end;
+            l_v := int2hex( trunc( l_v0 / 2 ), 8 )
+                || int2hex( l_v1, 8 );
+            if l_reduce
+            then
+              l_v := utl_raw.bit_xor( l_v, 'E1000000000000000000000000000000' );
+            end if;
+          end loop;
+        end loop;
         if l_ghash_precomp( 127 )
-        then                                                                                                   
-          l_z := utl_raw.bit_xor( l_z, l_v );                                                                  
+        then
+          l_z := utl_raw.bit_xor( l_z, l_v );
         end if;
       end loop;
-      return l_z;                                                                                            
-    end;                                                                                                     
-  --
+      return l_z;
+    end;
   begin
     l_H := encrypt( utl_raw.copies( '00', l_block_size ), l_mode, p_key );
-    for i in 0 .. 1                                                                                        
-    loop                                                                                                   
-      l_x := to_number( substr( lpad( l_H, 32, '0' ), 1 + i * 16, 16 ), lpad( 'X', 16, 'X' ) );            
-      for j in 0 .. 63                                                                               
+    for i in 0 .. 1
+    loop
+      l_x := to_number( substr( lpad( l_H, 32, '0' ), 1 + i * 16, 16 ), lpad( 'X', 16, 'X' ) );
+      for j in 0 .. 63
       loop
         l_ghash_precomp( i * 64 + j ) := bitand( l_x, power( 2, 63 - j ) ) != 0;
       end loop;
@@ -4268,16 +4911,29 @@ $END
         l_counter := utl_raw.concat( p_iv
                                    , l_counter
                                    , utl_raw.copies( '00', 8 )
-                                   , to_char( 8 * l_len, 'fm0XXXXXXXXXXXXXXX' )
+                                   , int2hex( 8 * l_len, 8 )
                                    );
       end if;
       l_counter := ghash( l_counter );
     else
       l_counter := utl_raw.concat( p_iv, utl_raw.copies( '00', l_block_size - 13 ), '01' );
     end if;
-    l_tag_init := encrypt( l_counter, l_mode, p_key );
-    l_tag_tmp := ghash( utl_raw.substr( utl_raw.concat( p_aad, utl_raw.copies( '00', l_block_size ) ), 1, l_block_size ) );
+    --
     l_len := nvl( utl_raw.length( p_src ), 0 );
+    l_tag_init := encrypt( l_counter, l_mode, p_key );
+    l_tag_tmp := '00';
+    for i in 0 .. trunc( ( l_aad_len - 1 ) / l_block_size )
+    loop
+      l_tag_tmp := ghash( utl_raw.bit_xor
+                            ( l_tag_tmp
+                            , utl_raw.substr( utl_raw.concat( p_aad, utl_raw.copies( '00', l_block_size ) )
+                                            , 1 + i * l_block_size
+                                            , l_block_size
+                                            )
+                            )                
+                        );
+    end loop;
+    --
     if not p_encrypt
     then
       l_len := l_len - l_block_size;
@@ -4285,7 +4941,7 @@ $END
     for i in 0 .. trunc( l_len / l_block_size ) - 1
     loop
       l_counter := utl_raw.concat( utl_raw.substr( l_counter, 1, l_block_size - 4 )
-                                 , to_char( to_number( utl_raw.substr( l_counter, - 4 ), '0XXXXXXX' ) + 1, 'fm0XXXXXXX' )
+                                 , int2hex( to_number( utl_raw.substr( l_counter, - 4 ), '0XXXXXXX' ) + 1, 4 )
                                  );
       l_encr_ctr := encrypt( l_counter, l_mode, p_key );
       l_src_txt := utl_raw.substr( p_src, 1 + i * l_block_size, l_block_size );
@@ -4302,7 +4958,7 @@ $END
     if l_encr_len < l_len
     then
       l_counter := utl_raw.concat( utl_raw.substr( l_counter, 1, l_block_size - 4 )
-                                 , to_char( 1 + to_number( utl_raw.substr( l_counter, -4 ), '0XXXXXXX' ), 'fm0XXXXXXX' )
+                                 , int2hex( 1 + to_number( utl_raw.substr( l_counter, -4 ), '0XXXXXXX' ), 4 )
                                  );
       l_encr_ctr := encrypt( l_counter, l_mode, p_key );
       if p_encrypt
@@ -4321,10 +4977,10 @@ $END
       end if;
       l_encrypted := utl_raw.concat( l_encrypted, l_encr_txt );
     end if;
-    l_tag_tmp := ghash( utl_raw.bit_xor( to_char( nvl( utl_raw.length( p_aad ), 0 ) * 8, 'fm0XXXXXXXXXXXXXXX' )
-                                      || to_char( l_len * 8, 'fm0XXXXXXXXXXXXXXX' )
+    l_tag_tmp := ghash( utl_raw.bit_xor( int2hex( l_aad_len * 8, 8 )
+                                      || int2hex( l_len * 8, 8 )
                                        , l_tag_tmp
-                                       ) 
+                                       )
                       );
     l_tag_tmp := utl_raw.bit_xor( l_tag_init, l_tag_tmp );
     if p_encrypt
@@ -4335,7 +4991,206 @@ $END
       raise_application_error( -20039, 'Authentication Tag has is not as expected.' );
     end if;
     return l_encrypted;
+  end gcm_aes;
+  --
+  function get_ccm_tag( src     in raw
+                      , key     in raw
+                      , iv      in raw
+                      , aad     in raw
+                      , tag_len in pls_integer
+                      )
+  return raw
+  is
+    l_n     pls_integer;
+    l_a     pls_integer;
+    l_len   pls_integer;
+    l_flags pls_integer;
+    l_y     raw(64);
+    l_tmp   raw(32767);
+    --
+    function aes( p1 raw, p2 raw := '00' ) 
+    return raw
+    is
+    begin
+      return encrypt( utl_raw.bit_xor( p1, p2 )
+                    , ENCRYPT_AES + CHAIN_CBC + PAD_NONE
+                    , key
+                    );
+    end;
+  begin
+    l_n := utl_raw.length( iv );
+    l_len := utl_raw.length( src );
+    l_flags := 4 * ( tag_len - 2 ) + 15 - l_n - 1;
+    if aad is not null
+    then
+      l_flags := l_flags + 64;
+    end if;
+    l_y := aes( int2hex( l_flags, 1 )
+             || iv
+             || int2hex( l_len, 15 - l_n )
+              );
+    if aad is not null
+    then
+      l_a := utl_raw.length( aad );
+      l_y := aes( l_y
+                , utl_raw.concat( int2hex( l_a, 2 )
+                                , case when l_a >= 14
+                                    then utl_raw.substr( aad, 1, 14 )
+                                    else aad
+                                  end
+                                , case when l_a between 1 and 13
+                                    then utl_raw.copies( '00', 14 - l_a )
+                                  end 
+                                )  
+                );
+      if l_a > 14
+      then
+        l_tmp := utl_raw.substr( aad, 15 ) || utl_raw.copies( '00', 15 );
+      end if;
+      for i in 0 .. trunc( ( l_a + 1 ) / 16 ) - 1
+      loop
+        l_y := aes( l_y, utl_raw.substr( l_tmp, i * 16 + 1, 16 ) );
+      end loop;
+    end if;
+    --
+    l_tmp := src || utl_raw.copies( '00', 15 );
+    for i in 0 .. trunc( ( l_len - 1 ) / 16 )
+    loop
+      l_y := aes( l_y, utl_raw.substr( l_tmp, i * 16 + 1, 16 ) );
+    end loop;
+    --
+    return utl_raw.substr( utl_raw.bit_xor( l_y
+                                          , aes( int2hex( 15 - l_n - 1, 1 )
+                                              || iv
+                                              || int2hex( 0, 15 - l_n )
+                                               )
+                                          )
+                         , 1
+                         , tag_len
+                         );
   end;
+  --
+  function ccm_encrypt( src     in  raw
+                      , key     in  raw
+                      , iv      in  raw := null
+                      , aad     in  raw := null
+                      , tag_len in  pls_integer := 16
+                      , tag     out raw
+                      )
+  return raw
+  is
+    l_n   pls_integer;
+    l_len pls_integer;
+    l_tmp raw(32767);
+    l_rv  raw(32767);
+    --
+    function aes( p1 raw, p2 raw := '00' ) 
+    return raw
+    is
+    begin
+      return encrypt( utl_raw.bit_xor( p1, p2 )
+                    , ENCRYPT_AES + CHAIN_CBC + PAD_NONE
+                    , key
+                    );
+    end;
+  begin
+    if src is null
+    then
+      return null;
+    end if;
+    l_n := utl_raw.length( iv );
+    if iv is null or l_n not between 7 and 13
+    then
+      raise_application_error( -20040, 'PL/SQL function returned an error.' );
+    elsif tag_len is null or tag_len not between 4 and 16
+    then
+      raise_application_error( -20041, 'PL/SQL function returned an error.' );
+    end if;
+    --    
+    tag := get_ccm_tag( src
+                      , key
+                      , iv
+                      , aad
+                      , tag_len
+                      );
+    --
+    l_len := utl_raw.length( src );
+    l_tmp := src || utl_raw.copies( '00', 15 );
+    for i in 0 .. trunc( ( l_len - 1 ) / 16 ) 
+    loop
+      l_rv := l_rv ||
+              utl_raw.bit_xor( utl_raw.substr( l_tmp, i * 16 + 1, 16 )
+                             , aes( int2hex( 15 - l_n - 1, 1 )
+                                 || iv 
+                                 || int2hex( i + 1, 15 - l_n ) 
+                                  )
+                             );
+    end loop;
+    return utl_raw.substr( l_rv, 1, l_len );
+  end ccm_encrypt;
+  --
+  function ccm_decrypt( src      in  raw
+                      , key      in  raw
+                      , iv       in  raw := null
+                      , aad      in  raw := null
+                      , tag      in raw
+                      )
+  return raw
+  is
+    l_n   pls_integer;
+    l_len pls_integer;
+    l_rv  raw(32767);
+    l_tmp raw(32767);
+    --
+    function aes( p1 raw, p2 raw := '00' ) 
+    return raw
+    is
+    begin
+      return encrypt( utl_raw.bit_xor( p1, p2 )
+                    , ENCRYPT_AES + CHAIN_CBC + PAD_NONE
+                    , key
+                    );
+    end;
+  begin
+    if src is null
+    then
+      return null;
+    end if;
+    l_n := utl_raw.length( iv );
+    if iv is null or l_n not between 7 and 13
+    then
+      raise_application_error( -20042, 'PL/SQL function returned an error.' );
+    elsif tag is null or utl_raw.length( tag ) not between 4 and 16
+    then
+      raise_application_error( -20043, 'PL/SQL function returned an error.' );
+    end if;
+    l_len := utl_raw.length( src );
+    --                         
+    l_tmp := src || utl_raw.copies( '00', 15 );
+    for i in 0 .. trunc( ( l_len - 1 ) / 16 ) 
+    loop
+      l_rv := l_rv ||
+              utl_raw.bit_xor( utl_raw.substr( l_tmp, i * 16 + 1, 16 )
+                             , aes( int2hex( 15 - l_n - 1, 1 )
+                                 || iv 
+                                 || int2hex( i + 1, 15 - l_n ) 
+                                  )
+                             );
+    end loop;
+    l_rv := utl_raw.substr( l_rv, 1, l_len );
+    --
+    if tag != get_ccm_tag( l_rv
+                         , key
+                         , iv
+                         , aad
+                         , utl_raw.length( tag )
+                         )
+    then
+      l_rv := null;
+      raise_application_error( -20044, 'PL/SQL function returned an error.' );
+    end if;
+    return l_rv;
+  end ccm_decrypt;
   --
   function encrypt( src in  raw
                   , typ in  pls_integer
@@ -4353,17 +5208,17 @@ $END
     elsif bitand( typ, 61440 ) != PAD_NONE -- 0xF000
     then
       raise_application_error( -20031, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
-    elsif bitand( typ, 3840 ) != CHAIN_GCM -- 0x0F00
+    elsif bitand( typ, 3840 ) not in ( CHAIN_GCM, CHAIN_CCM ) -- 0x0F00
     then
       raise_application_error( -20032, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
     elsif bitand( typ, 255 ) not in ( ENCRYPT_AES, ENCRYPT_AES128, ENCRYPT_AES192, ENCRYPT_AES256 )  -- 0x0FF
     then
-      raise_application_error( -20033, 'Chaining mode GCM is only allowed for AES encryption.' );
-    elsif iv is null
-    then
-      raise_application_error( -20034, 'GCM requires a iv nonce.' );
+      raise_application_error( -20033, 'Chaining modes GCM and CCM are only allowed for AES encryption.' );
     end if;
-    return gcm_aes( true, src, key, iv, aad, tag );
+    return case when bitand( typ, 3840 ) = CHAIN_GCM
+             then gcm_aes( true, src, key, iv, aad, tag )
+             else ccm_encrypt( src, key, iv, aad, 16, tag )
+           end;
   end encrypt;
   --
   function decrypt( src in raw
@@ -4383,17 +5238,17 @@ $END
     elsif bitand( typ, 61440 ) != PAD_NONE -- 0xF000
     then
       raise_application_error( -20031, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
-    elsif bitand( typ, 3840 ) != CHAIN_GCM -- 0x0F00
+    elsif bitand( typ, 3840 ) not in ( CHAIN_GCM, CHAIN_CCM ) -- 0x0F00
     then
       raise_application_error( -20032, 'An invalid cipher type was passed to a PL/SQL function or procedure.' );
     elsif bitand( typ, 255 ) not in ( ENCRYPT_AES, ENCRYPT_AES128, ENCRYPT_AES192, ENCRYPT_AES256 )  -- 0x0FF
     then
-      raise_application_error( -20033, 'Chaining mode GCM is only allowed for AES encryption.' );
-    elsif iv is null
-    then
-      raise_application_error( -20034, 'GCM requires a iv nonce.' );
+      raise_application_error( -20033, 'Chaining modes GCM and CCM are only allowed for AES encryption.' );
     end if;
-    return gcm_aes( false, utl_raw.concat( src, tag ), key, iv, aad, l_dummy_tag );
+    return case when bitand( typ, 3840 ) = CHAIN_GCM
+             then gcm_aes( false, utl_raw.concat( src, tag ), key, iv, aad, l_dummy_tag )
+             else ccm_decrypt( src, key, iv, aad, tag )
+           end;
   end decrypt;
   --
   function rsa_chinese_remainder( p_m tp_mag
@@ -4420,7 +5275,7 @@ $END
       l_m2 := powmod( p_m, mag( p_key_parameters(8) ), l_q ); -- (8) = dq
       l_h := mulmod( submod(l_m1, l_m2, l_p ), mag( p_key_parameters(4) ), l_p );   -- (4) = qinv
       return demag( addmod( l_m2, rmul( l_h, l_q ), mag( p_key_parameters(1) ) ) ); -- (1) = n
-    end if;    
+    end if;
     return demag( powmod( p_m, mag( p_key_parameters(3) ), mag( p_key_parameters(1) ) ) );
   end;
   --
@@ -4462,7 +5317,9 @@ $END
     elsif enc_alg not in ( PKENCRYPT_RSA_PKCS1_OAEP, PKENCRYPT_RSA_PKCS1_OAEP_SHA2 )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
+    elsif not (  parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
+              or parse_jwk_RSA_PUB_key( pub_key, l_key_parameters )
+              )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     end if;
@@ -4525,7 +5382,9 @@ $END
     elsif enc_alg not in ( PKENCRYPT_RSA_PKCS1_OAEP, PKENCRYPT_RSA_PKCS1_OAEP_SHA2 )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+    elsif not (  parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+              or parse_jwk_RSA_PRIV_key( prv_key, l_key_parameters )
+              )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     end if;
@@ -4616,7 +5475,9 @@ $END
                        )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+    elsif not (  parse_DER_RSA_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+              or parse_jwk_RSA_PRIV_key( prv_key, l_key_parameters )
+              )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     elsif trunc( utl_raw.length( l_key_parameters(1) ) / 8 ) * 8 < 128
@@ -4771,7 +5632,10 @@ $END
                        )
     then
       raise_application_error( -20015, 'invalid cipher type passed' );
-    elsif not parse_DER_EC_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+    elsif not (  parse_DER_EC_PRIV_key( base64_decode( prv_key ), l_key_parameters )
+              or parse_jwk_EC_PRIV_key( prv_key, l_key_parameters )
+              or parse_raw_EC_PRIV_key( prv_key, l_key_parameters )
+              )
     then
       raise_application_error( -20016, 'PL/SQL function returned an error.' );
     end if;
@@ -4968,7 +5832,9 @@ $END
                        )
     then
       raise_application_error( -20016, 'invalid cipher type passed' );
-    elsif not parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
+    elsif not (  parse_DER_RSA_PUB_key( base64_decode( pub_key ), l_key_parameters )
+              or parse_jwk_RSA_PUB_key( pub_key, l_key_parameters )
+              )
     then
       raise_application_error( -20017, 'PL/SQL function returned an error.' );
     end if;
@@ -5164,7 +6030,10 @@ $END
                        )
     then
       raise_application_error( -20016, 'invalid cipher type passed' );
-    elsif not parse_DER_EC_PUB_key( base64_decode( pub_key ), l_key_parameters )
+    elsif not (  parse_DER_EC_PUB_key( base64_decode( pub_key ), l_key_parameters )
+              or parse_jwk_EC_PUB_key( pub_key, l_key_parameters )
+              or parse_raw_EC_PUB_key( pub_key, l_key_parameters )
+              )
     then
       raise_application_error( -20017, 'PL/SQL function returned an error.' );
     end if;
