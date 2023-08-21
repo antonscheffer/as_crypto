@@ -4902,7 +4902,7 @@ $END
     then
       if p_iv is null
       then
-        l_counter := utl_raw.copies( '00', 3 * l_block_size - 1  ) || '00';
+        l_counter := utl_raw.copies( '00', 2 * l_block_size - 1 ) || '80';
       else
         if mod( l_len, l_block_size ) > 0
         then
